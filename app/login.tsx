@@ -1,17 +1,17 @@
-import React, { useState } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  TextInput, 
-  TouchableOpacity, 
-  ScrollView, 
-  KeyboardAvoidingView, 
-  Platform,
-  Alert
-} from 'react-native';
 import { useRouter } from 'expo-router';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
+import React, { useState } from 'react';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 // Component hiển thị Logo Google
@@ -45,15 +45,15 @@ const AppleIcon = () => (
 
 // Define Colors
 const COLORS = {
-  background: '#ffffff',
-  foreground: '#030213', 
-  primary: '#030213',    
+  background: '#eff6ff',
+  foreground: '#1e3a8a',
+  primary: '#3b82f6',
   primaryForeground: '#ffffff',
-  muted: '#ececf0',      
-  mutedForeground: '#717182', 
-  inputBackground: '#f3f3f5',
-  border: 'rgba(0, 0, 0, 0.1)', 
-  radius: 10, 
+  muted: '#bfdbfe',
+  mutedForeground: '#9ca3af',
+  inputBackground: '#ffffff',
+  border: '#e5e7eb',
+  radius: 12,
 };
 
 export default function LoginScreen() {
@@ -68,15 +68,15 @@ export default function LoginScreen() {
     // TODO: Kết nối API Spring Boot tại đây
     
     if (email && password) {
-       // Giả lập đăng nhập thành công -> chuyển về Home (Tab Layout)
-       router.replace('/(tabs)');
+       // CẬP NHẬT QUAN TRỌNG: Chuyển hướng trực tiếp vào tab Home
+       // Thay vì router.replace('/(tabs)') thì dùng router.replace('/(tabs)/home')
+       router.replace('/(tabs)/home'); 
     } else {
        Alert.alert('Thông báo', 'Vui lòng nhập đầy đủ thông tin');
     }
   };
 
   const handleSignUp = () => {
-    // Đã thay đổi: Chuyển hướng sang màn hình đăng ký thay vì hiển thị Alert
     router.push('/signup');
   };
 
@@ -198,11 +198,11 @@ const styles = StyleSheet.create({
   headerSection: {
     alignItems: 'center',
     marginBottom: 40,
-    marginTop: 32,
+    marginTop: 60,
   },
   logoContainer: {
-    width: 96,
-    height: 96,
+    width: 100,
+    height: 100,
     marginBottom: 20,
     position: 'relative',
     alignItems: 'center',
@@ -212,22 +212,21 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: '100%',
     height: '100%',
-    borderRadius: 48,
+    borderRadius: 50,
     backgroundColor: COLORS.primary,
     shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
   },
   logoRing: {
     position: 'absolute',
-    width: '110%',
-    height: '110%',
+    width: '120%',
+    height: '120%',
     borderRadius: 60,
-    borderWidth: 2,
-    borderColor: COLORS.muted,
-    opacity: 0.6,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.2)',
   },
   logoTextContainer: {
     position: 'absolute',
@@ -236,14 +235,14 @@ const styles = StyleSheet.create({
   },
   logoText: {
     color: COLORS.primaryForeground,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
-    letterSpacing: 1.5,
+    letterSpacing: 1,
   },
   welcomeText: {
-    color: COLORS.mutedForeground,
+    color: '#64748b',
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '400',
   },
   formContainer: {
     width: '100%',
@@ -255,11 +254,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
     backgroundColor: COLORS.inputBackground,
     borderRadius: COLORS.radius,
     borderWidth: 1,
     borderColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 5,
+    elevation: 2,
   },
   inputIcon: {
     marginRight: 12,
@@ -267,7 +271,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 16,
-    color: COLORS.foreground,
+    color: '#334155',
     fontWeight: '400',
   },
   eyeButton: {
@@ -289,9 +293,9 @@ const styles = StyleSheet.create({
     borderRadius: COLORS.radius,
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
     alignItems: 'center',
   },
   loginButtonText: {
@@ -311,7 +315,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 1,
-    backgroundColor: COLORS.muted,
+    backgroundColor: '#e2e8f0',
   },
   dividerTextContainer: {
     alignSelf: 'center',
@@ -319,7 +323,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   dividerText: {
-    color: COLORS.mutedForeground,
+    color: '#64748b',
     fontSize: 14,
   },
   socialContainer: {
@@ -329,31 +333,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.background,
+    backgroundColor: '#ffffff',
     paddingVertical: 16,
     borderRadius: COLORS.radius,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderWidth: 0,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    shadowRadius: 5,
+    elevation: 2,
   },
   socialButtonText: {
     marginLeft: 12,
-    color: COLORS.foreground,
+    color: '#334155',
     fontSize: 15,
     fontWeight: '500',
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 32,
-    marginBottom: 16,
+    marginTop: 40,
+    marginBottom: 20,
   },
   footerText: {
-    color: COLORS.mutedForeground,
+    color: '#64748b',
     fontSize: 14,
   },
   signUpText: {

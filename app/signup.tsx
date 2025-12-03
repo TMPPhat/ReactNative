@@ -1,17 +1,17 @@
-import React, { useState } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  TextInput, 
-  TouchableOpacity, 
-  ScrollView, 
-  KeyboardAvoidingView, 
-  Platform,
-  Alert
-} from 'react-native';
 import { useRouter } from 'expo-router';
-import { Eye, EyeOff, Lock, Mail, User, Square, CheckSquare } from 'lucide-react-native';
+import { CheckSquare, Eye, EyeOff, Lock, Mail, Square, User } from 'lucide-react-native';
+import React, { useState } from 'react';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 // Component hiển thị Logo Google (Tái sử dụng)
@@ -43,17 +43,17 @@ const AppleIcon = () => (
   </Svg>
 );
 
-// Define Colors based on CSS variables provided (Giống Login)
+// Define Colors based on CSS variables provided (Cập nhật theo ảnh Pink Theme)
 const COLORS = {
-  background: '#ffffff',
-  foreground: '#030213',
-  primary: '#030213',
+  background: '#fdf4ff', // Fuchsia 50 - Nền hồng phấn rất nhạt
+  foreground: '#4a044e', // Fuchsia 950 - Chữ tím đậm
+  primary: '#d946ef',    // Fuchsia 500 - Màu hồng tím chủ đạo (Nút/Logo)
   primaryForeground: '#ffffff',
-  muted: '#ececf0',
-  mutedForeground: '#717182',
-  inputBackground: '#f3f3f5',
-  border: 'rgba(0, 0, 0, 0.1)',
-  radius: 10,
+  muted: '#fae8ff',      // Fuchsia 100 - Viền/Ring nhạt
+  mutedForeground: '#868e96', // Màu xám trung tính cho icon
+  inputBackground: '#ffffff', // Input nền trắng
+  border: '#f0abfc',     // Viền hồng nhạt
+  radius: 12,
 };
 
 export default function SignUpScreen() {
@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   logoContainer: {
-    width: 80, // Nhỏ hơn Login một chút để tiết kiệm diện tích form
+    width: 80,
     height: 80,
     marginBottom: 16,
     position: 'relative',
@@ -292,7 +292,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: 40,
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.primary, // Hồng tím
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2,
@@ -301,12 +301,11 @@ const styles = StyleSheet.create({
   },
   logoRing: {
     position: 'absolute',
-    width: '110%',
-    height: '110%',
+    width: '120%',
+    height: '120%',
     borderRadius: 50,
-    borderWidth: 2,
-    borderColor: COLORS.muted,
-    opacity: 0.6,
+    borderWidth: 1,
+    borderColor: 'rgba(217, 70, 239, 0.2)', // Viền hồng nhạt
   },
   logoTextContainer: {
     position: 'absolute',
@@ -320,9 +319,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
   },
   welcomeText: {
-    color: COLORS.mutedForeground,
+    color: '#701a75', // Chữ tím đậm
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '400',
   },
   
   // Form Styles
@@ -341,6 +340,12 @@ const styles = StyleSheet.create({
     borderRadius: COLORS.radius,
     borderWidth: 1,
     borderColor: 'transparent',
+    // Shadow nhẹ cho input (giống ảnh)
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   inputIcon: {
     marginRight: 12,
@@ -348,7 +353,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 16,
-    color: COLORS.foreground,
+    color: '#334155',
     fontWeight: '400',
   },
   eyeButton: {
@@ -358,35 +363,35 @@ const styles = StyleSheet.create({
   // Terms Styles
   termsContainer: {
     flexDirection: 'row',
-    alignItems: 'flex-start', // Căn chỉnh top nếu text dài
+    alignItems: 'flex-start',
     marginVertical: 4,
     paddingHorizontal: 4,
   },
   checkboxContainer: {
     marginRight: 12,
-    marginTop: 2, // Căn chỉnh với dòng text đầu tiên
+    marginTop: 2,
   },
   termsTextContainer: {
     flex: 1,
   },
   termsText: {
-    color: COLORS.mutedForeground,
+    color: '#64748b', // Xám nhẹ
     fontSize: 14,
     lineHeight: 20,
   },
   linkText: {
-    color: COLORS.primary,
+    color: '#a21caf', // Tím hồng đậm cho link
     fontWeight: '600',
   },
 
   // Signup Button
   signupButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.primary, // Hồng tím
     paddingVertical: 16,
     borderRadius: COLORS.radius,
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
     alignItems: 'center',
@@ -411,21 +416,21 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 1,
-    backgroundColor: COLORS.muted,
+    backgroundColor: '#e2e8f0',
   },
   dividerTextContainer: {
     alignSelf: 'center',
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.background, // Trùng nền hồng
     paddingHorizontal: 16,
   },
   dividerText: {
-    color: COLORS.mutedForeground,
+    color: '#64748b',
     fontSize: 14,
   },
 
   // Social Buttons
   socialContainer: {
-    flexDirection: 'row', // Nằm ngang thay vì dọc để tiết kiệm không gian
+    flexDirection: 'row',
     gap: 12,
   },
   socialButton: {
@@ -433,11 +438,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.background,
+    backgroundColor: '#ffffff',
     paddingVertical: 14,
     borderRadius: COLORS.radius,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderWidth: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -446,7 +450,7 @@ const styles = StyleSheet.create({
   },
   socialButtonText: {
     marginLeft: 8,
-    color: COLORS.foreground,
+    color: '#334155',
     fontSize: 15,
     fontWeight: '500',
   },
@@ -459,11 +463,11 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   footerText: {
-    color: COLORS.mutedForeground,
+    color: '#64748b',
     fontSize: 14,
   },
   loginLinkText: {
-    color: COLORS.primary,
+    color: '#a21caf', // Tím hồng đậm
     fontWeight: '600',
     fontSize: 14,
   },
