@@ -14,6 +14,7 @@ import {
 import React from 'react';
 import {
   Alert,
+  Image,
   Platform,
   ScrollView,
   StyleSheet,
@@ -21,6 +22,8 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+// Import hook lấy dữ liệu người dùng
+import { useAuth } from '../../context/AuthContext';
 
 // Màu sắc chủ đạo (Blue Theme)
 const COLORS = {
@@ -37,6 +40,7 @@ const COLORS = {
 
 export default function AccountScreen() {
   const router = useRouter();
+  const { user, logout } = useAuth();
 
   const handleLogout = () => {
     Alert.alert(
@@ -47,7 +51,9 @@ export default function AccountScreen() {
         { 
           text: "Đăng xuất", 
           style: "destructive", 
-          onPress: () => router.replace('/login') // Chuyển về màn hình Login (cần tạo sau)
+          onPress: () => {
+            logout();
+          }
         }
       ]
     );
@@ -85,12 +91,22 @@ export default function AccountScreen() {
       >
         <View style={styles.profileInfo}>
           <View style={styles.avatarContainer}>
-            <User size={32} color="white" />
+            {user?.AvatarUrl ? (
+              <Image 
+                source={{ uri: user.AvatarUrl }} 
+                style={styles.avatarImage} 
+                resizeMode="cover"
+              />
+            ) : (
+              <User size={32} color="white" />
+            )}
           </View>
+          
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>Nguyễn Văn A</Text>
-            <Text style={styles.userEmail}>nguyen.vana@email.com</Text>
+            <Text style={styles.userName}>{user?.name || 'Khách'}</Text>
+            <Text style={styles.userEmail}>{user?.email || 'Vui lòng đăng nhập'}</Text>
           </View>
+          
           <TouchableOpacity 
             style={styles.editButton}
             onPress={() => router.push('/profile-edit')}
@@ -103,15 +119,17 @@ export default function AccountScreen() {
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
             <Text style={styles.statLabel}>Điểm tích lũy</Text>
-            <Text style={styles.statValue}>1,250</Text>
+            <Text style={styles.statValue}>
+              {typeof user?.point === 'number' ? user.point.toLocaleString() : '0'}
+            </Text>
           </View>
           <View style={[styles.statItem, styles.statBorder]}>
             <Text style={styles.statLabel}>Voucher</Text>
-            <Text style={styles.statValue}>5</Text>
+            <Text style={styles.statValue}>0</Text>
           </View>
           <View style={styles.statItem}>
             <Text style={styles.statLabel}>Đã mua</Text>
-            <Text style={styles.statValue}>23</Text>
+            <Text style={styles.statValue}>0</Text>
           </View>
         </View>
       </LinearGradient>
@@ -194,6 +212,12 @@ const styles = StyleSheet.create({
     marginRight: 16,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.3)',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 32,
   },
   userInfo: {
     flex: 1,
@@ -206,7 +230,7 @@ const styles = StyleSheet.create({
   },
   userEmail: {
     fontSize: 14,
-    color: '#dbeafe', // Blue 100
+    color: '#dbeafe',
   },
   editButton: {
     padding: 8,
@@ -214,7 +238,6 @@ const styles = StyleSheet.create({
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    // Sử dụng gap nếu cần, hoặc flex space-between
   },
   statItem: {
     flex: 1,
@@ -222,7 +245,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.15)',
     paddingVertical: 12,
     borderRadius: 16,
-    marginHorizontal: 4, // Thay thế cho gap ở View cha nếu không hỗ trợ tốt trên bản cũ
+    marginHorizontal: 4,
   },
   statBorder: {
     // Nếu muốn viền giữa, nhưng ở đây dùng card riêng lẻ đẹp hơn
@@ -239,7 +262,7 @@ const styles = StyleSheet.create({
   },
   menuContainer: {
     padding: 24,
-    marginTop: -10, // Kéo lên một chút nếu cần
+    marginTop: -10, 
   },
   section: {
     marginBottom: 24,

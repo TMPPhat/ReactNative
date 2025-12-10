@@ -2,20 +2,20 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { ArrowLeft, Banknote, Check, CreditCard, MapPin, Wallet } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
-    Image,
-    Modal,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Image,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Import Context
-import { useCart } from './CartContext';
+import { useCart } from '../context/CartContext';
 
 // Đổi tên interface Props cho khớp
 interface CheckoutModalProps {

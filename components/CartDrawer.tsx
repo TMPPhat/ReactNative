@@ -13,7 +13,7 @@ import {
 import { useRouter } from 'expo-router'; // Import useRouter
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { CartItem, useCart } from './CartContext';
+import { CartItem, useCart } from '../context/CartContext';
 
 // Màu sắc chủ đạo (Blue Theme)
 const COLORS = {

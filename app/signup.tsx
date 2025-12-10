@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { CheckSquare, Eye, EyeOff, Lock, Mail, Square, User } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -13,6 +14,7 @@ import {
   View
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { useAuth } from '../context/AuthContext'; // Import useAuth
 
 // Component hiển thị Logo Google (Tái sử dụng)
 const GoogleIcon = () => (
@@ -43,21 +45,22 @@ const AppleIcon = () => (
   </Svg>
 );
 
-// Define Colors based on CSS variables provided (Cập nhật theo ảnh Pink Theme)
+// Define Colors
 const COLORS = {
-  background: '#fdf4ff', // Fuchsia 50 - Nền hồng phấn rất nhạt
-  foreground: '#4a044e', // Fuchsia 950 - Chữ tím đậm
-  primary: '#d946ef',    // Fuchsia 500 - Màu hồng tím chủ đạo (Nút/Logo)
+  background: '#fdf4ff', // Fuchsia 50
+  foreground: '#4a044e', // Fuchsia 950
+  primary: '#d946ef',    // Fuchsia 500
   primaryForeground: '#ffffff',
-  muted: '#fae8ff',      // Fuchsia 100 - Viền/Ring nhạt
-  mutedForeground: '#868e96', // Màu xám trung tính cho icon
-  inputBackground: '#ffffff', // Input nền trắng
+  muted: '#fae8ff',      // Fuchsia 100
+  mutedForeground: '#868e96',
+  inputBackground: '#ffffff',
   border: '#f0abfc',     // Viền hồng nhạt
   radius: 12,
 };
 
 export default function SignUpScreen() {
   const router = useRouter();
+  const { register, isLoading } = useAuth(); // Lấy hàm register và trạng thái loading
   
   // Form State
   const [formData, setFormData] = useState({
@@ -75,32 +78,36 @@ export default function SignUpScreen() {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSignUp = () => {
-    console.log('Sign up:', formData);
-
-    if (!formData.name || !formData.email || !formData.password) {
-      Alert.alert('Lỗi', 'Vui lòng điền đầy đủ thông tin');
+  const handleSignUp = async () => {
+    // 1. Kiểm tra trường rỗng
+    if (!formData.name.trim() || !formData.email.trim() || !formData.password.trim()) {
+      Alert.alert('Thiếu thông tin', 'Vui lòng điền đầy đủ Họ tên, Email và Mật khẩu.');
       return;
     }
 
+    // 2. Kiểm tra mật khẩu khớp
     if (formData.password !== formData.confirmPassword) {
-      Alert.alert('Lỗi', 'Mật khẩu xác nhận không khớp');
+      Alert.alert('Lỗi mật khẩu', 'Mật khẩu xác nhận không khớp.');
       return;
     }
 
+    // 3. Kiểm tra độ dài mật khẩu (VD: tối thiểu 6 ký tự)
+    if (formData.password.length < 6) {
+      Alert.alert('Mật khẩu yếu', 'Mật khẩu phải có ít nhất 6 ký tự.');
+      return;
+    }
+
+    // 4. Kiểm tra điều khoản
     if (!agreeTerms) {
-      Alert.alert('Lỗi', 'Vui lòng đồng ý với điều khoản dịch vụ');
+      Alert.alert('Yêu cầu', 'Vui lòng đồng ý với điều khoản dịch vụ để tiếp tục.');
       return;
     }
 
-    // TODO: Kết nối API Spring Boot (/api/auth/signup) tại đây
-    Alert.alert('Thành công', 'Đăng ký thành công! Vui lòng đăng nhập.', [
-      { text: 'OK', onPress: () => router.back() } // Quay lại màn login
-    ]);
+    // 5. Gọi hàm đăng ký từ Context
+    await register(formData.name, formData.email, formData.password);
   };
 
   const handleSwitchToLogin = () => {
-    // Quay lại màn hình Login (giả sử Login là trang trước đó hoặc dùng replace)
     if (router.canGoBack()) {
       router.back();
     } else {
@@ -139,6 +146,7 @@ export default function SignUpScreen() {
               placeholderTextColor={COLORS.mutedForeground}
               value={formData.name}
               onChangeText={(text) => updateField('name', text)}
+              editable={!isLoading}
             />
           </View>
 
@@ -153,6 +161,7 @@ export default function SignUpScreen() {
               onChangeText={(text) => updateField('email', text)}
               keyboardType="email-address"
               autoCapitalize="none"
+              editable={!isLoading}
             />
           </View>
 
@@ -166,6 +175,7 @@ export default function SignUpScreen() {
               value={formData.password}
               onChangeText={(text) => updateField('password', text)}
               secureTextEntry={!showPassword}
+              editable={!isLoading}
             />
             <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
               {showPassword ? (
@@ -186,6 +196,7 @@ export default function SignUpScreen() {
               value={formData.confirmPassword}
               onChangeText={(text) => updateField('confirmPassword', text)}
               secureTextEntry={!showConfirmPassword}
+              editable={!isLoading}
             />
             <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} style={styles.eyeButton}>
               {showConfirmPassword ? (
@@ -196,11 +207,12 @@ export default function SignUpScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Terms and Conditions (Custom Checkbox) */}
+          {/* Terms and Conditions */}
           <View style={styles.termsContainer}>
             <TouchableOpacity 
               onPress={() => setAgreeTerms(!agreeTerms)}
               style={styles.checkboxContainer}
+              disabled={isLoading}
             >
               {agreeTerms ? (
                 <CheckSquare color={COLORS.primary} size={20} />
@@ -221,11 +233,16 @@ export default function SignUpScreen() {
 
           {/* Sign Up Button */}
           <TouchableOpacity 
-            style={styles.signupButton} 
+            style={[styles.signupButton, isLoading && { opacity: 0.7 }]} 
             onPress={handleSignUp}
             activeOpacity={0.8}
+            disabled={isLoading}
           >
-            <Text style={styles.signupButtonText}>Đăng ký</Text>
+            {isLoading ? (
+               <ActivityIndicator color={COLORS.primaryForeground} />
+            ) : (
+               <Text style={styles.signupButtonText}>Đăng ký</Text>
+            )}
           </TouchableOpacity>
 
           {/* Divider */}
@@ -238,12 +255,12 @@ export default function SignUpScreen() {
 
           {/* Social Sign Up Buttons */}
           <View style={styles.socialContainer}>
-            <TouchableOpacity style={styles.socialButton}>
+            <TouchableOpacity style={styles.socialButton} disabled={isLoading}>
               <GoogleIcon />
               <Text style={styles.socialButtonText}>Google</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.socialButton, { backgroundColor: 'black' }]}>
+            <TouchableOpacity style={[styles.socialButton, { backgroundColor: 'black' }]} disabled={isLoading}>
               <AppleIcon />
               <Text style={[styles.socialButtonText, { color: 'white' }]}>Apple</Text>
             </TouchableOpacity>
@@ -255,7 +272,7 @@ export default function SignUpScreen() {
           <Text style={styles.footerText}>
             Đã có tài khoản?{' '}
           </Text>
-          <TouchableOpacity onPress={handleSwitchToLogin}>
+          <TouchableOpacity onPress={handleSwitchToLogin} disabled={isLoading}>
             <Text style={styles.loginLinkText}>Đăng nhập</Text>
           </TouchableOpacity>
         </View>
@@ -273,7 +290,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: COLORS.background,
   },
-  // Header Styles
   headerSection: {
     alignItems: 'center',
     marginBottom: 32,
@@ -323,13 +339,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '400',
   },
-  
-  // Form Styles
   formContainer: {
     width: '100%',
     maxWidth: 400,
     alignSelf: 'center',
-    gap: 12, // Khoảng cách giữa các input
+    gap: 12,
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -340,7 +354,6 @@ const styles = StyleSheet.create({
     borderRadius: COLORS.radius,
     borderWidth: 1,
     borderColor: 'transparent',
-    // Shadow nhẹ cho input (giống ảnh)
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -359,8 +372,6 @@ const styles = StyleSheet.create({
   eyeButton: {
     padding: 4,
   },
-  
-  // Terms Styles
   termsContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -375,18 +386,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   termsText: {
-    color: '#64748b', // Xám nhẹ
+    color: '#64748b', 
     fontSize: 14,
     lineHeight: 20,
   },
   linkText: {
-    color: '#a21caf', // Tím hồng đậm cho link
+    color: '#a21caf',
     fontWeight: '600',
   },
-
-  // Signup Button
   signupButton: {
-    backgroundColor: COLORS.primary, // Hồng tím
+    backgroundColor: COLORS.primary,
     paddingVertical: 16,
     borderRadius: COLORS.radius,
     shadowColor: COLORS.primary,
@@ -402,8 +411,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-
-  // Divider
   dividerContainer: {
     position: 'relative',
     height: 20,
@@ -420,15 +427,13 @@ const styles = StyleSheet.create({
   },
   dividerTextContainer: {
     alignSelf: 'center',
-    backgroundColor: COLORS.background, // Trùng nền hồng
+    backgroundColor: COLORS.background,
     paddingHorizontal: 16,
   },
   dividerText: {
     color: '#64748b',
     fontSize: 14,
   },
-
-  // Social Buttons
   socialContainer: {
     flexDirection: 'row',
     gap: 12,
@@ -454,8 +459,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
   },
-
-  // Footer
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -467,7 +470,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   loginLinkText: {
-    color: '#a21caf', // Tím hồng đậm
+    color: '#a21caf',
     fontWeight: '600',
     fontSize: 14,
   },

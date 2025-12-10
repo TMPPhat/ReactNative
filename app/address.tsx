@@ -1,16 +1,26 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Edit2, MapPin, Plus, Trash2 } from 'lucide-react-native';
-import React, { useState } from 'react';
+import { ArrowLeft, CheckSquare, Edit2, MapPin, Plus, Square, Trash2, X } from 'lucide-react-native';
+import React, { useEffect, useState } from 'react';
 import {
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView, // Import thêm KeyboardAvoidingView
+  Modal,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+// Import Context & API
+import apiAddress, { AddressData } from '../api/apiAddress';
+import { useAuth } from '../context/AuthContext';
 
 // Màu sắc chủ đạo (Đồng bộ)
 const COLORS = {
@@ -29,33 +39,162 @@ const COLORS = {
   blueBg: '#eff6ff',
 };
 
-interface Address {
-  id: number;
-  name: string;
-  phone: string;
-  address: string;
-  isDefault: boolean;
-}
-
 export default function AddressScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   
-  const [addresses] = useState<Address[]>([
-    {
-      id: 1,
-      name: 'Nguyễn Văn A',
-      phone: '0912345678',
-      address: '123 Đường ABC, Phường XYZ, Quận 1, TP.HCM',
-      isDefault: true,
-    },
-    {
-      id: 2,
-      name: 'Nguyễn Văn A',
-      phone: '0912345678',
-      address: '456 Đường DEF, Phường UVW, Quận 3, TP.HCM',
-      isDefault: false,
-    },
-  ]);
+  // --- State ---
+  const [addresses, setAddresses] = useState<AddressData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Modal State
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null); // State để biết đang sửa ID nào
+  const [addressForm, setAddressForm] = useState({
+    label: 'Nhà riêng',
+    phone: '',
+    detail: '',
+    isDefault: false, // Thêm trạng thái mặc định vào form
+  });
+
+  // --- Fetch Data ---
+  const fetchAddresses = async () => {
+    if (!user) return;
+    try {
+      const res = await apiAddress.getAddressesByUser(user.id);
+      setAddresses(res.results || []);
+    } catch (error) {
+      console.error("Lỗi lấy danh sách địa chỉ:", error);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAddresses();
+  }, [user]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchAddresses();
+  };
+
+  // --- Handlers ---
+  
+  // Mở modal để THÊM MỚI
+  const openAddModal = () => {
+    setEditingId(null);
+    setAddressForm({ 
+        label: 'Nhà riêng', 
+        phone: '', 
+        detail: '',
+        isDefault: addresses.length === 0 // Nếu chưa có địa chỉ nào thì mặc định là true
+    });
+    setModalVisible(true);
+  };
+
+  // Mở modal để SỬA
+  const openEditModal = (addr: AddressData) => {
+    setEditingId(addr.id);
+    setAddressForm({
+        label: addr.label,
+        phone: addr.phone,
+        detail: addr.detail,
+        isDefault: addr.is_default
+    });
+    setModalVisible(true);
+  };
+
+  // Xử lý Xóa
+  const handleDelete = (id: number) => {
+    Alert.alert(
+      "Xác nhận xóa",
+      "Bạn có chắc chắn muốn xóa địa chỉ này không?",
+      [
+        { text: "Hủy", style: "cancel" },
+        { 
+          text: "Xóa", 
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setIsProcessing(true);
+              await apiAddress.deleteAddress(id);
+              // Refresh list locally
+              setAddresses(prev => prev.filter(addr => addr.id !== id));
+              Alert.alert("Thành công", "Đã xóa địa chỉ.");
+            } catch (error) {
+              Alert.alert("Lỗi", "Không thể xóa địa chỉ.");
+            } finally {
+              setIsProcessing(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Xử lý Lưu (Thêm mới hoặc Cập nhật)
+  const handleSaveAddress = async () => {
+    if (!user) return;
+    if (!addressForm.detail.trim() || !addressForm.phone.trim()) {
+      Alert.alert("Thiếu thông tin", "Vui lòng nhập số điện thoại và địa chỉ chi tiết.");
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+
+      // --- LOGIC ĐẢM BẢO CHỈ CÓ 1 ĐỊA CHỈ MẶC ĐỊNH ---
+      // Nếu người dùng tick chọn "Đặt làm mặc định"
+      if (addressForm.isDefault) {
+         // Tìm địa chỉ đang là mặc định trong danh sách hiện tại
+         const currentDefault = addresses.find(addr => addr.is_default);
+         
+         // Nếu tìm thấy và địa chỉ đó KHÔNG PHẢI là địa chỉ đang được sửa (tránh update chính nó)
+         if (currentDefault && currentDefault.id !== editingId) {
+             // Gọi API để tắt trạng thái mặc định của địa chỉ cũ
+             await apiAddress.updateAddress(currentDefault.id, { is_default: false });
+         }
+      }
+
+      if (editingId) {
+        // --- LOGIC SỬA ---
+        await apiAddress.updateAddress(editingId, {
+            label: addressForm.label,
+            detail: addressForm.detail,
+            phone: addressForm.phone,
+            is_default: addressForm.isDefault
+        });
+        Alert.alert("Thành công", "Cập nhật địa chỉ thành công!");
+      } else {
+        // --- LOGIC THÊM MỚI ---
+        // Nếu là địa chỉ đầu tiên thì luôn là mặc định
+        const shouldBeDefault = addresses.length === 0 ? true : addressForm.isDefault;
+        
+        await apiAddress.createAddress({
+            label: addressForm.label,
+            detail: addressForm.detail,
+            phone: addressForm.phone,
+            is_default: shouldBeDefault,
+            user_id: [user.id]
+        });
+        Alert.alert("Thành công", "Thêm địa chỉ mới thành công!");
+      }
+      
+      setModalVisible(false);
+      setAddressForm({ label: 'Nhà riêng', phone: '', detail: '', isDefault: false }); // Reset form
+      setEditingId(null);
+      fetchAddresses(); // Reload lại danh sách để cập nhật UI
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Lỗi", "Không thể lưu địa chỉ.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -78,54 +217,77 @@ export default function AddressScreen() {
         </SafeAreaView>
       </LinearGradient>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.addressList}>
-          {addresses.map((address) => (
-            <View key={address.id} style={styles.addressCard}>
-              <View style={styles.cardHeader}>
-                <View style={styles.iconContainer}>
-                  <MapPin size={20} color={COLORS.green} />
-                </View>
-                <View style={styles.cardInfo}>
-                  <View style={styles.nameRow}>
-                    <Text style={styles.nameText}>{address.name}</Text>
-                    {address.isDefault && (
-                      <View style={styles.defaultBadge}>
-                        <Text style={styles.defaultText}>Mặc định</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.phoneText}>{address.phone}</Text>
-                  <Text style={styles.addressText}>{address.address}</Text>
-                </View>
-              </View>
-              
-              <View style={styles.divider} />
-              
-              <View style={styles.actionRow}>
-                <TouchableOpacity style={[styles.actionButton, styles.editButton]}>
-                  <Edit2 size={16} color={COLORS.textLight} style={{ marginRight: 6 }} />
-                  <Text style={styles.actionText}>Sửa</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionButton, styles.deleteButton]}>
-                  <Trash2 size={16} color={COLORS.red} style={{ marginRight: 6 }} />
-                  <Text style={styles.deleteText}>Xóa</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))}
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
         </View>
-        
-        {/* Padding bottom để không bị che bởi nút thêm */}
-        <View style={{ height: 100 }} />
-      </ScrollView>
+      ) : (
+        <ScrollView 
+            contentContainerStyle={styles.scrollContent} 
+            showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
+            <View style={styles.addressList}>
+            {addresses.length === 0 ? (
+                <View style={styles.emptyState}>
+                    <Text style={{color: '#9ca3af'}}>Chưa có địa chỉ nào.</Text>
+                </View>
+            ) : (
+                addresses.map((address) => (
+                    <View key={address.id} style={styles.addressCard}>
+                    <View style={styles.cardHeader}>
+                        <View style={styles.iconContainer}>
+                        <MapPin size={20} color={COLORS.green} />
+                        </View>
+                        <View style={styles.cardInfo}>
+                        <View style={styles.nameRow}>
+                            <Text style={styles.nameText}>{address.label}</Text>
+                            {address.is_default && (
+                            <View style={styles.defaultBadge}>
+                                <Text style={styles.defaultText}>Mặc định</Text>
+                            </View>
+                            )}
+                        </View>
+                        <Text style={styles.phoneText}>{address.phone}</Text>
+                        <Text style={styles.addressText}>{address.detail}</Text>
+                        </View>
+                    </View>
+                    
+                    <View style={styles.divider} />
+                    
+                    <View style={styles.actionRow}>
+                        <TouchableOpacity 
+                            style={[styles.actionButton, styles.editButton]}
+                            onPress={() => openEditModal(address)} // Mở modal sửa
+                        >
+                            <Edit2 size={16} color={COLORS.textLight} style={{ marginRight: 6 }} />
+                            <Text style={styles.actionText}>Sửa</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity 
+                            style={[styles.actionButton, styles.deleteButton]}
+                            onPress={() => handleDelete(address.id)}
+                            disabled={isProcessing}
+                        >
+                            <Trash2 size={16} color={COLORS.red} style={{ marginRight: 6 }} />
+                            <Text style={styles.deleteText}>Xóa</Text>
+                        </TouchableOpacity>
+                    </View>
+                    </View>
+                ))
+            )}
+            </View>
+            
+            <View style={{ height: 100 }} />
+        </ScrollView>
+      )}
 
       {/* Add Address Button */}
       <View style={styles.bottomBar}>
         <TouchableOpacity
           activeOpacity={0.9}
           style={styles.addButtonWrapper}
-          // onPress={() => router.push('/address-add')} // Logic thêm sau
+          onPress={openAddModal} // Mở modal thêm mới
         >
           <LinearGradient
             colors={[COLORS.primary, COLORS.secondary]}
@@ -138,6 +300,98 @@ export default function AddressScreen() {
           </LinearGradient>
         </TouchableOpacity>
       </View>
+
+      {/* Modal Thêm/Sửa Địa Chỉ */}
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        {/* Sử dụng KeyboardAvoidingView để xử lý bàn phím */}
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                  {/* Sử dụng ScrollView để có thể cuộn khi bàn phím hiện lên */}
+                  <ScrollView showsVerticalScrollIndicator={false}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>
+                            {editingId ? 'Cập nhật địa chỉ' : 'Thêm địa chỉ mới'}
+                        </Text>
+                        <TouchableOpacity onPress={() => setModalVisible(false)}>
+                            <X size={24} color={COLORS.textLight} />
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Nhãn (Ví dụ: Nhà riêng, Công ty)</Text>
+                        <TextInput 
+                            style={styles.input} 
+                            value={addressForm.label}
+                            onChangeText={(text) => setAddressForm({...addressForm, label: text})}
+                            placeholder="Nhà riêng"
+                        />
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Số điện thoại nhận hàng</Text>
+                        <TextInput 
+                            style={styles.input} 
+                            value={addressForm.phone}
+                            onChangeText={(text) => setAddressForm({...addressForm, phone: text})}
+                            placeholder="09xx..."
+                            keyboardType="phone-pad"
+                        />
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Địa chỉ chi tiết</Text>
+                        <TextInput 
+                            style={[styles.input, {height: 80, textAlignVertical: 'top'}]} 
+                            value={addressForm.detail}
+                            onChangeText={(text) => setAddressForm({...addressForm, detail: text})}
+                            placeholder="Số nhà, tên đường, phường/xã..."
+                            multiline
+                        />
+                    </View>
+
+                    {/* Nút đặt làm mặc định */}
+                    <TouchableOpacity 
+                        style={styles.checkboxContainer}
+                        onPress={() => setAddressForm({...addressForm, isDefault: !addressForm.isDefault})}
+                    >
+                        {addressForm.isDefault ? (
+                            <CheckSquare size={20} color={COLORS.primary} />
+                        ) : (
+                            <Square size={20} color={COLORS.textLight} />
+                        )}
+                        <Text style={styles.checkboxLabel}>Đặt làm địa chỉ mặc định</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                        style={styles.saveButton}
+                        onPress={handleSaveAddress}
+                        disabled={isProcessing}
+                    >
+                        {isProcessing ? (
+                            <ActivityIndicator color="white" />
+                        ) : (
+                            <Text style={styles.saveButtonText}>
+                                {editingId ? 'Cập nhật' : 'Lưu địa chỉ'}
+                            </Text>
+                        )}
+                    </TouchableOpacity>
+                    {/* Thêm khoảng trống dưới cùng để tránh sát mép khi cuộn */}
+                    <View style={{ height: 20 }} />
+                  </ScrollView>
+              </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
     </View>
   );
 }
@@ -146,6 +400,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.bg,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     paddingTop: Platform.OS === 'ios' ? 0 : 0,
@@ -176,6 +435,10 @@ const styles = StyleSheet.create({
   },
   addressList: {
     gap: 16,
+  },
+  emptyState: {
+    alignItems: 'center',
+    marginTop: 50,
   },
   addressCard: {
     backgroundColor: 'white',
@@ -301,4 +564,68 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: 'white',
   },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 20,
+    maxHeight: '80%', // Giới hạn chiều cao modal để tránh bị tràn màn hình khi phím hiện lên
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.text,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 14,
+    color: COLORS.textLight,
+    marginBottom: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: COLORS.text,
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingVertical: 4,
+  },
+  checkboxLabel: {
+    fontSize: 14,
+    color: COLORS.text,
+    marginLeft: 10,
+  },
+  saveButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  saveButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  }
 });

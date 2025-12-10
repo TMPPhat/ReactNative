@@ -1,9 +1,11 @@
 import { useRouter } from 'expo-router';
-import { Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
+import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, Mail, MessageSquare } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -13,7 +15,15 @@ import {
   View
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { useAuth } from '../context/AuthContext'; // Import hook useAuth
 
+// --- CẤU HÌNH EMAILJS ---
+// Bạn hãy thay thế bằng thông tin thật từ tài khoản EmailJS của bạn
+const EMAILJS_CONFIG = {
+  SERVICE_ID: 'service_4rqxodn',      // VD: service_gmail
+  TEMPLATE_ID: 'template_v91vs9q',    // VD: template_otp_code
+  PUBLIC_KEY: 'LFTVau-pMSELmf49x',      // VD: aBcDeFgHiJkLmNoPq
+};
 // Component hiển thị Logo Google
 const GoogleIcon = () => (
   <Svg width={20} height={20} viewBox="0 0 24 24">
@@ -54,30 +64,155 @@ const COLORS = {
   inputBackground: '#ffffff',
   border: '#e5e7eb',
   radius: 12,
+  textLight: '#64748b', 
 };
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { login, isLoading } = useAuth();
+  
+  // Login States
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleLogin = () => {
-    console.log('Đang đăng nhập với:', { email, password });
-    
-    // TODO: Kết nối API Spring Boot tại đây
-    
-    if (email && password) {
-       // CẬP NHẬT QUAN TRỌNG: Chuyển hướng trực tiếp vào tab Home
-       // Thay vì router.replace('/(tabs)') thì dùng router.replace('/(tabs)/home')
-       router.replace('/(tabs)/home'); 
-    } else {
+  // Forgot Password States
+  const [forgotModalVisible, setForgotModalVisible] = useState(false);
+  const [forgotStep, setForgotStep] = useState(1); // 1: Email, 2: OTP, 3: New Pass
+  const [resetEmail, setResetEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [generatedOtp, setGeneratedOtp] = useState(''); // Lưu OTP gốc để đối chiếu
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [isResetLoading, setIsResetLoading] = useState(false);
+
+  // --- Handlers cho Login ---
+  const handleLogin = async () => {
+    if (!email || !password) {
        Alert.alert('Thông báo', 'Vui lòng nhập đầy đủ thông tin');
+       return;
     }
+    await login(email, password);
   };
 
   const handleSignUp = () => {
     router.push('/signup');
+  };
+
+  // --- Handlers cho Forgot Password ---
+  
+  // Hàm tạo OTP ngẫu nhiên 6 số
+  const generateOTP = () => {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  };
+
+  // Bước 1: Gửi Email qua EmailJS
+  const handleSubmitEmail = async () => {
+    if (!resetEmail || !resetEmail.includes('@')) {
+      Alert.alert('Lỗi', 'Vui lòng nhập địa chỉ email hợp lệ.');
+      return;
+    }
+
+    setIsResetLoading(true);
+
+    try {
+      // 1. Tạo OTP
+      const otp = generateOTP();
+      setGeneratedOtp(otp); // Lưu lại để so sánh ở bước 2
+      console.log('Generated OTP:', otp); // Debug: Xem OTP trong console
+
+      // 2. Gửi request đến EmailJS API
+      const data = {
+        service_id: EMAILJS_CONFIG.SERVICE_ID,
+        template_id: EMAILJS_CONFIG.TEMPLATE_ID,
+        user_id: EMAILJS_CONFIG.PUBLIC_KEY,
+        template_params: {
+          to_email: resetEmail,
+          // Gửi OTP vào cả 2 biến để đảm bảo hiển thị dù bạn dùng template nào
+          otp_code: otp, 
+          message: otp, // Dành cho template mặc định dùng biến {{message}}
+        }
+      };
+
+      const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'origin': 'http://localhost', // Giữ header này để tránh lỗi chặn API
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (response.ok) {
+        Alert.alert('Thành công', `Mã OTP đã được gửi đến ${resetEmail}`);
+        setForgotStep(2); // Chuyển sang bước nhập OTP
+      } else {
+        const errorText = await response.text();
+        console.error('EmailJS Error:', errorText);
+        Alert.alert('Lỗi', `EmailJS từ chối: ${errorText}. Hãy kiểm tra lại Config.`);
+      }
+    } catch (error) {
+      console.error('Lỗi gửi email:', error);
+      Alert.alert('Lỗi', 'Đã xảy ra lỗi kết nối. Vui lòng kiểm tra mạng.');
+    } finally {
+      setIsResetLoading(false);
+    }
+  };
+
+  // Bước 2: Xác thực OTP
+  const handleSubmitOtp = () => {
+    if (otpCode.length !== 6) {
+      Alert.alert('Lỗi', 'Mã OTP phải có 6 chữ số.');
+      return;
+    }
+    
+    setIsResetLoading(true);
+    
+    // Giả lập verify OTP (So sánh với state local)
+    setTimeout(() => {
+      setIsResetLoading(false);
+      if (otpCode === generatedOtp) {
+        Alert.alert('Thành công', 'Xác thực OTP thành công!');
+        setForgotStep(3); // Chuyển sang bước nhập mật khẩu mới
+      } else {
+        Alert.alert('Lỗi', 'Mã OTP không chính xác. Vui lòng kiểm tra lại email.');
+      }
+    }, 500);
+  };
+
+  // Bước 3: Đổi mật khẩu (Cần gọi API Backend thật để update password)
+  const handleSubmitNewPassword = () => {
+    if (newPassword.length < 6) {
+      Alert.alert('Lỗi', 'Mật khẩu phải có ít nhất 6 ký tự.');
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      Alert.alert('Lỗi', 'Mật khẩu xác nhận không khớp.');
+      return;
+    }
+    setIsResetLoading(true);
+    
+    // TODO: Tại đây bạn cần gọi API Baserow hoặc Backend của bạn để cập nhật mật khẩu mới cho user có email này
+    // Ví dụ: await apiUser.updatePassword(resetEmail, newPassword);
+    
+    setTimeout(() => {
+      setIsResetLoading(false);
+      Alert.alert('Thành công', 'Mật khẩu đã được đặt lại. Vui lòng đăng nhập bằng mật khẩu mới.', [
+        { text: 'OK', onPress: closeForgotModal }
+      ]);
+    }, 1500);
+  };
+
+  const closeForgotModal = () => {
+    setForgotModalVisible(false);
+    // Reset lại state khi đóng
+    setForgotStep(1);
+    setResetEmail('');
+    setOtpCode('');
+    setGeneratedOtp('');
+    setNewPassword('');
+    setConfirmNewPassword('');
   };
 
   return (
@@ -113,6 +248,7 @@ export default function LoginScreen() {
               onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
+              editable={!isLoading}
             />
           </View>
 
@@ -126,6 +262,7 @@ export default function LoginScreen() {
               value={password}
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
+              editable={!isLoading}
             />
             <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
               {showPassword ? (
@@ -136,18 +273,26 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Forgot Password */}
-          <TouchableOpacity style={styles.forgotPasswordContainer}>
+          {/* Forgot Password Link */}
+          <TouchableOpacity 
+            style={styles.forgotPasswordContainer}
+            onPress={() => setForgotModalVisible(true)}
+          >
             <Text style={styles.forgotPasswordText}>Quên mật khẩu?</Text>
           </TouchableOpacity>
 
           {/* Login Button */}
           <TouchableOpacity 
-            style={styles.loginButton} 
+            style={[styles.loginButton, isLoading && { opacity: 0.7 }]} 
             onPress={handleLogin}
             activeOpacity={0.8}
+            disabled={isLoading}
           >
-            <Text style={styles.loginButtonText}>Đăng nhập</Text>
+            {isLoading ? (
+              <ActivityIndicator color={COLORS.primaryForeground} />
+            ) : (
+              <Text style={styles.loginButtonText}>Đăng nhập</Text>
+            )}
           </TouchableOpacity>
 
           {/* Divider */}
@@ -160,12 +305,12 @@ export default function LoginScreen() {
 
           {/* Social Login Buttons */}
           <View style={styles.socialContainer}>
-            <TouchableOpacity style={styles.socialButton}>
+            <TouchableOpacity style={styles.socialButton} disabled={isLoading}>
               <GoogleIcon />
               <Text style={styles.socialButtonText}>Tiếp tục với Google</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.socialButton, { backgroundColor: 'black' }]}>
+            <TouchableOpacity style={[styles.socialButton, { backgroundColor: 'black' }]} disabled={isLoading}>
               <AppleIcon />
               <Text style={[styles.socialButtonText, { color: 'white' }]}>Tiếp tục với Apple</Text>
             </TouchableOpacity>
@@ -177,12 +322,148 @@ export default function LoginScreen() {
           <Text style={styles.footerText}>
             Chưa có tài khoản?{' '}
           </Text>
-          <TouchableOpacity onPress={handleSignUp}>
+          <TouchableOpacity onPress={handleSignUp} disabled={isLoading}>
             <Text style={styles.signUpText}>Đăng ký ngay</Text>
           </TouchableOpacity>
         </View>
 
       </ScrollView>
+
+      {/* --- FORGOT PASSWORD MODAL --- */}
+      <Modal
+        visible={forgotModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={closeForgotModal}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              {forgotStep > 1 && (
+                <TouchableOpacity onPress={() => setForgotStep(forgotStep - 1)} style={styles.modalBackBtn}>
+                   <ArrowLeft size={24} color={COLORS.textLight} />
+                </TouchableOpacity>
+              )}
+              <Text style={styles.modalTitle}>
+                {forgotStep === 1 ? 'Quên mật khẩu' : 
+                 forgotStep === 2 ? 'Xác thực OTP' : 'Đặt lại mật khẩu'}
+              </Text>
+              <TouchableOpacity onPress={closeForgotModal} style={styles.modalCloseBtn}>
+                 <Text style={styles.closeText}>Đóng</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Modal Body */}
+            <View style={styles.modalBody}>
+              
+              {/* STEP 1: EMAIL */}
+              {forgotStep === 1 && (
+                <>
+                  <Text style={styles.modalInstruction}>
+                    Nhập email của bạn để nhận mã xác thực đặt lại mật khẩu.
+                  </Text>
+                  <View style={styles.inputWrapper}>
+                    <Mail color={COLORS.mutedForeground} size={20} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Nhập email của bạn"
+                      placeholderTextColor={COLORS.mutedForeground}
+                      value={resetEmail}
+                      onChangeText={setResetEmail}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  </View>
+                  <TouchableOpacity 
+                    style={[styles.modalButton, isResetLoading && { opacity: 0.7 }]}
+                    onPress={handleSubmitEmail}
+                    disabled={isResetLoading}
+                  >
+                    {isResetLoading ? <ActivityIndicator color="white" /> : <Text style={styles.modalButtonText}>Gửi mã OTP</Text>}
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {/* STEP 2: OTP */}
+              {forgotStep === 2 && (
+                <>
+                  <Text style={styles.modalInstruction}>
+                    Mã xác thực 6 số đã được gửi đến {resetEmail}.
+                  </Text>
+                  <View style={styles.inputWrapper}>
+                    <MessageSquare color={COLORS.mutedForeground} size={20} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Nhập mã OTP (6 số)"
+                      placeholderTextColor={COLORS.mutedForeground}
+                      value={otpCode}
+                      onChangeText={setOtpCode}
+                      keyboardType="number-pad"
+                      maxLength={6}
+                    />
+                  </View>
+                  <TouchableOpacity 
+                    style={[styles.modalButton, isResetLoading && { opacity: 0.7 }]}
+                    onPress={handleSubmitOtp}
+                    disabled={isResetLoading}
+                  >
+                    {isResetLoading ? <ActivityIndicator color="white" /> : <Text style={styles.modalButtonText}>Xác nhận OTP</Text>}
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {/* STEP 3: NEW PASSWORD */}
+              {forgotStep === 3 && (
+                <>
+                  <Text style={styles.modalInstruction}>
+                    Nhập mật khẩu mới cho tài khoản của bạn.
+                  </Text>
+                  <View style={[styles.inputWrapper, { marginBottom: 12 }]}>
+                    <KeyRound color={COLORS.mutedForeground} size={20} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Mật khẩu mới"
+                      placeholderTextColor={COLORS.mutedForeground}
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      secureTextEntry={!showNewPassword}
+                    />
+                    <TouchableOpacity onPress={() => setShowNewPassword(!showNewPassword)} style={styles.eyeButton}>
+                       {showNewPassword ? <EyeOff size={20} color={COLORS.mutedForeground}/> : <Eye size={20} color={COLORS.mutedForeground}/>}
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <View style={styles.inputWrapper}>
+                    <KeyRound color={COLORS.mutedForeground} size={20} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Nhập lại mật khẩu mới"
+                      placeholderTextColor={COLORS.mutedForeground}
+                      value={confirmNewPassword}
+                      onChangeText={setConfirmNewPassword}
+                      secureTextEntry={!showNewPassword}
+                    />
+                  </View>
+
+                  <TouchableOpacity 
+                    style={[styles.modalButton, { marginTop: 24 }, isResetLoading && { opacity: 0.7 }]}
+                    onPress={handleSubmitNewPassword}
+                    disabled={isResetLoading}
+                  >
+                    {isResetLoading ? <ActivityIndicator color="white" /> : <Text style={styles.modalButtonText}>Cập nhật mật khẩu</Text>}
+                  </TouchableOpacity>
+                </>
+              )}
+
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
     </KeyboardAvoidingView>
   );
 }
@@ -364,4 +645,63 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
+  // --- MODAL STYLES ---
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalBackBtn: {
+    marginRight: 10,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#111827',
+    flex: 1,
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  closeText: {
+    color: COLORS.primary,
+    fontWeight: '600',
+  },
+  modalBody: {
+    gap: 16,
+  },
+  modalInstruction: {
+    fontSize: 14,
+    color: '#64748b',
+    marginBottom: 8,
+  },
+  modalButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  modalButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  }
 });

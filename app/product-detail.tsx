@@ -1,96 +1,180 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
-    ArrowLeft,
-    Award,
-    Clock,
-    Flame,
-    Heart,
-    Minus,
-    Plus,
-    ShoppingCart,
-    Star
+  ArrowLeft,
+  Award,
+  Clock,
+  Flame,
+  Heart,
+  Minus,
+  Plus,
+  ShoppingCart,
+  Star
 } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-    Image,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Image,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 
 // Import Context
-import { useCart } from '../components/CartContext';
 import { CartDrawer } from '../components/CartDrawer';
+import { useCart } from '../context/CartContext';
 
-// --- Định nghĩa kiểu dữ liệu ---
-interface Product {
-  id: number;
-  name: string;
-  price: number;
-  category: string;
-  image: string;
-  rating?: number;
-  reviews?: number;
-  description?: string;
-}
+// Import API
+import apiProduct, { ProductData } from '../api/apiProduct';
+import apiReview, { ReviewData } from '../api/apiReview';
 
-// --- Dữ liệu giả lập (Mock Data) để tìm kiếm sản phẩm ---
-const allProducts: Product[] = [
-  { id: 1, name: 'Cà phê sữa đá', price: 35000, category: 'Đồ uống', image: 'coffee drink', rating: 4.5, reviews: 208, description: 'Cà phê sữa đá được chế biến từ nguyên liệu tươi ngon, đảm bảo chất lượng và hương vị tuyệt vời.' },
-  { id: 2, name: 'Trà sữa trân châu', price: 45000, category: 'Đồ uống', image: 'bubble tea', rating: 4.8, reviews: 150 },
-  { id: 3, name: 'Bánh mì thịt', price: 25000, category: 'Đồ ăn', image: 'vietnamese sandwich', rating: 4.6, reviews: 98 },
-  { id: 4, name: 'Phở bò', price: 55000, category: 'Đồ ăn', image: 'pho noodles', rating: 4.9, reviews: 312 },
-  { id: 5, name: 'Cơm gà', price: 45000, category: 'Đồ ăn', image: 'chicken rice' },
-  { id: 6, name: 'Tiramisu', price: 45000, category: 'Tráng miệng', image: 'tiramisu cake' },
-];
-
-const reviewsList = [
-  { id: 1, name: "Minh Anh", rating: 5, comment: "Rất ngon, sẽ quay lại!", time: "2 ngày trước" },
-  { id: 2, name: "Hương Giang", rating: 4, comment: "Chất lượng tốt, giao hàng nhanh", time: "5 ngày trước" },
-  { id: 3, name: "Tuấn Kiệt", rating: 5, comment: "Tuyệt vời! Đúng như mô tả", time: "1 tuần trước" },
-];
+// Màu sắc chủ đạo
+const COLORS = {
+  primary: '#3b82f6',
+  sale: '#e11d48', // Màu đỏ cho sale
+  textLight: '#6b7280',
+};
 
 export default function ProductDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { addToCart, getTotalItems } = useCart();
   
-  // State
+  // Lấy ID sản phẩm
+  const productId = Number(params.id);
+
+  // --- State ---
+  const [product, setProduct] = useState<ProductData | null>(null);
+  const [reviews, setReviews] = useState<ReviewData[]>([]);
+  const [relatedProducts, setRelatedProducts] = useState<ProductData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // UI State
   const [quantity, setQuantity] = useState(1);
   const [isFavorite, setIsFavorite] = useState(false);
   const [selectedSize, setSelectedSize] = useState("M");
   const [isCartOpen, setIsCartOpen] = useState(false);
 
-  // Lấy sản phẩm từ ID truyền vào, nếu không thấy thì dùng sản phẩm mặc định
-  const productId = Number(params.id);
-  const product = allProducts.find(p => p.id === productId) || allProducts[0];
+  // --- Helper: Tính giá sản phẩm ---
+  const calculatePrice = (productData: ProductData) => {
+    let finalPrice = Number(productData.price);
+    let originalPrice = Number(productData.price);
+    let hasDiscount = false;
 
-  // Logic xử lý
+    if (productData.is_on_sale) {
+      const discountVal = Number(productData.discount_value);
+      if (productData.discount_type === 'percent') {
+        finalPrice = originalPrice * (1 - discountVal / 100);
+        hasDiscount = true;
+      } else if (productData.discount_type === 'amount') {
+        finalPrice = originalPrice - discountVal;
+        hasDiscount = true;
+      }
+    }
+    
+    return {
+      finalPrice: Math.max(0, finalPrice),
+      originalPrice: originalPrice,
+      hasDiscount: hasDiscount
+    };
+  };
+
+  // --- Fetch Data ---
+  useEffect(() => {
+    const fetchDetailData = async () => {
+      try {
+        setIsLoading(true);
+        if (!productId) return;
+
+        // 1. Lấy chi tiết sản phẩm và Đánh giá song song
+        const [productData, reviewsRes] = await Promise.all([
+          apiProduct.getProductDetail(productId),
+          apiReview.getReviewsByProductId(productId)
+        ]);
+
+        setProduct(productData);
+        setReviews(reviewsRes.results || []);
+
+        // 2. Lấy sản phẩm liên quan
+        const allProductsRes = await apiProduct.getAllProducts();
+        const allProds = allProductsRes.results || [];
+        
+        // Lọc sản phẩm cùng danh mục và khác ID hiện tại
+        const currentCategory = productData.category?.[0]?.value;
+        const related = allProds.filter((p: ProductData) => 
+          p.id !== productId && 
+          p.category?.some(c => c.value === currentCategory)
+        ).slice(0, 6); 
+
+        setRelatedProducts(related);
+
+      } catch (error) {
+        console.error("Lỗi tải chi tiết sản phẩm:", error);
+        Alert.alert("Lỗi", "Không thể tải thông tin sản phẩm.");
+        router.back();
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDetailData();
+  }, [productId]);
+
+  // --- Helpers ---
+  const calculateAverageRating = () => {
+    if (!reviews || reviews.length === 0) return 0;
+    const total = reviews.reduce((sum, r) => sum + Number(r.rating), 0);
+    return (total / reviews.length).toFixed(1);
+  };
+
+  const getImageUrl = (imgArray: any) => {
+    return imgArray && imgArray.length > 0 
+      ? imgArray[0].url 
+      : 'https://via.placeholder.com/800';
+  };
+
+  // Logic thêm vào giỏ
   const handleAddToCart = () => {
+    if (!product) return;
+    
+    // Tính giá sau giảm
+    const { finalPrice } = calculatePrice(product);
+
+    // Thêm số lượng sản phẩm vào giỏ
     for (let i = 0; i < quantity; i++) {
       addToCart({
         id: product.id,
         name: product.name,
-        price: product.price,
-        image: `https://source.unsplash.com/400x400/?${product.image}`, // Xử lý URL ảnh
+        price: finalPrice, // Sử dụng giá đã giảm
+        image: getImageUrl(product.image),
       });
     }
     setQuantity(1);
-    // Có thể thêm Alert thông báo thành công
+    setIsCartOpen(true); 
   };
 
-  const relatedProducts = allProducts
-    .filter(p => p.category === product.category && p.id !== product.id)
-    .slice(0, 6);
+  if (isLoading) {
+    return (
+        <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#3b82f6" />
+        </View>
+    );
+  }
 
-  const rating = product.rating || 4.5;
-  const reviews = product.reviews || Math.floor(Math.random() * 200) + 50;
-  const description = product.description || `${product.name} được chế biến từ nguyên liệu tươi ngon, đảm bảo chất lượng và hương vị tuyệt vời. Món ăn/thức uống này là sự lựa chọn hoàn hảo cho bạn.`;
+  if (!product) return null;
+
+  // Dữ liệu hiển thị
+  const categoryName = product.category && product.category.length > 0 ? product.category[0].value : 'Món ngon';
+  const averageRating = calculateAverageRating();
+  const description = product.description || `Món ${product.name} được chế biến từ nguyên liệu tươi ngon, hương vị đậm đà.`;
+
+  // Tính giá để hiển thị
+  const { finalPrice, originalPrice, hasDiscount } = calculatePrice(product);
 
   return (
     <View style={styles.container}>
@@ -130,14 +214,25 @@ export default function ProductDetailScreen() {
           <View style={styles.imageContainer}>
             <View style={styles.imageWrapper}>
               <Image 
-                source={{ uri: `https://source.unsplash.com/800x800/?${product.image}` }}
+                source={{ uri: getImageUrl(product.image) }}
                 style={styles.productImage}
                 resizeMode="cover"
               />
               
+              {/* Sale Badge */}
+              {hasDiscount && (
+                 <View style={styles.saleBadge}>
+                    <Text style={styles.saleBadgeText}>
+                      {product.discount_type === 'percent' 
+                        ? `-${Math.round(Number(product.discount_value))}%` 
+                        : 'SALE'}
+                    </Text>
+                 </View>
+              )}
+
               {/* Category Badge */}
               <View style={styles.categoryBadge}>
-                <Text style={styles.categoryText}>{product.category}</Text>
+                <Text style={styles.categoryText}>{categoryName}</Text>
               </View>
 
               {/* Favorite Button */}
@@ -160,19 +255,21 @@ export default function ProductDetailScreen() {
               <View style={[styles.statIconBox, { backgroundColor: '#ffedd5' }]}>
                 <Flame size={20} color="#f97316" />
               </View>
-              <Text style={styles.statLabel}>Phổ biến</Text>
+              <Text style={styles.statLabel}>
+                 {Number(product.sold_quantity || 0)} đã bán
+              </Text>
             </View>
             <View style={styles.statCard}>
               <View style={[styles.statIconBox, { backgroundColor: '#dcfce7' }]}>
                 <Clock size={20} color="#22c55e" />
               </View>
-              <Text style={styles.statLabel}>10-15 phút</Text>
+              <Text style={styles.statLabel}>15-20 phút</Text>
             </View>
             <View style={styles.statCard}>
               <View style={[styles.statIconBox, { backgroundColor: '#fef9c3' }]}>
                 <Award size={20} color="#eab308" />
               </View>
-              <Text style={styles.statLabel}>Best seller</Text>
+              <Text style={styles.statLabel}>Chất lượng</Text>
             </View>
           </View>
         </LinearGradient>
@@ -186,14 +283,23 @@ export default function ProductDetailScreen() {
               <View style={styles.ratingRow}>
                 <View style={styles.ratingBadge}>
                   <Star size={14} color="#facc15" fill="#facc15" />
-                  <Text style={styles.ratingText}>{rating}</Text>
+                  <Text style={styles.ratingText}>{averageRating || 'N/A'}</Text>
                 </View>
-                <Text style={styles.reviewCount}>({reviews} đánh giá)</Text>
+                <Text style={styles.reviewCount}>({reviews.length} đánh giá)</Text>
               </View>
             </View>
-            <Text style={styles.priceText}>
-              {product.price.toLocaleString('vi-VN')}đ
-            </Text>
+            
+            {/* Price Info with Discount */}
+            <View style={{alignItems: 'flex-end'}}>
+               <Text style={[styles.priceText, hasDiscount && {color: COLORS.sale}]}>
+                 {finalPrice.toLocaleString('vi-VN')}đ
+               </Text>
+               {hasDiscount && (
+                 <Text style={styles.originalPriceText}>
+                   {originalPrice.toLocaleString('vi-VN')}đ
+                 </Text>
+               )}
+            </View>
           </View>
 
           {/* Description */}
@@ -254,30 +360,36 @@ export default function ProductDetailScreen() {
             <View style={styles.reviewHeader}>
               <View style={{flexDirection: 'row', alignItems: 'center'}}>
                 <View style={styles.pill} />
-                <Text style={styles.sectionTitle}>Đánh giá</Text>
+                <Text style={styles.sectionTitle}>Đánh giá ({reviews.length})</Text>
               </View>
-              <TouchableOpacity>
-                <Text style={styles.seeAllText}>Xem tất cả</Text>
-              </TouchableOpacity>
+              {reviews.length > 0 && (
+                <TouchableOpacity>
+                    <Text style={styles.seeAllText}>Xem tất cả</Text>
+                </TouchableOpacity>
+              )}
             </View>
             
-            {reviewsList.map((review) => (
-              <View key={review.id} style={styles.reviewItem}>
-                <View style={styles.reviewUserRow}>
-                  <View style={styles.userAvatar}>
-                    <Text style={styles.avatarText}>{review.name.charAt(0)}</Text>
-                  </View>
-                  <Text style={styles.userName}>{review.name}</Text>
-                  <View style={styles.starsRow}>
-                    {[...Array(review.rating)].map((_, i) => (
-                      <Star key={i} size={12} color="#facc15" fill="#facc15" />
-                    ))}
-                  </View>
+            {reviews.length > 0 ? (
+                reviews.slice(0, 3).map((review) => (
+                <View key={review.id} style={styles.reviewItem}>
+                    <View style={styles.reviewUserRow}>
+                    <View style={styles.userAvatar}>
+                        <Text style={styles.avatarText}>{(review.user_name || 'A').charAt(0)}</Text>
+                    </View>
+                    <Text style={styles.userName}>{review.user_name || 'Ẩn danh'}</Text>
+                    <View style={styles.starsRow}>
+                        {[...Array(Number(review.rating) || 5)].map((_, i) => (
+                        <Star key={i} size={12} color="#facc15" fill="#facc15" />
+                        ))}
+                    </View>
+                    </View>
+                    <Text style={styles.reviewComment}>{review.comment}</Text>
+                    <Text style={styles.reviewTime}>{review.date}</Text>
                 </View>
-                <Text style={styles.reviewComment}>{review.comment}</Text>
-                <Text style={styles.reviewTime}>{review.time}</Text>
-              </View>
-            ))}
+                ))
+            ) : (
+                <Text style={{color: '#9ca3af', fontStyle: 'italic', marginTop: 8}}>Chưa có đánh giá nào.</Text>
+            )}
           </View>
 
           {/* Related Products */}
@@ -289,22 +401,53 @@ export default function ProductDetailScreen() {
               </View>
               
               <View style={styles.relatedGrid}>
-                {relatedProducts.map((relProduct) => (
-                  <TouchableOpacity 
-                    key={relProduct.id} 
-                    style={styles.relatedCard}
-                    onPress={() => router.push({ pathname: '/product-detail', params: { id: relProduct.id } })}
-                  >
-                    <Image 
-                      source={{ uri: `https://source.unsplash.com/400x400/?${relProduct.image}` }}
-                      style={styles.relatedImage}
-                    />
-                    <View style={styles.relatedInfo}>
-                      <Text style={styles.relatedName} numberOfLines={1}>{relProduct.name}</Text>
-                      <Text style={styles.relatedPrice}>{relProduct.price.toLocaleString('vi-VN')}đ</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                {relatedProducts.map((relProduct) => {
+                  // --- LOGIC MỚI: Tính giá cho sản phẩm liên quan ---
+                  const relPriceInfo = calculatePrice(relProduct);
+                  const relImageUrl = getImageUrl(relProduct.image);
+
+                  return (
+                    <TouchableOpacity 
+                      key={relProduct.id} 
+                      style={styles.relatedCard}
+                      onPress={() => router.push({ pathname: '/product-detail', params: { id: relProduct.id } })}
+                    >
+                      {/* Bọc ảnh trong View để đặt Badge Sale */}
+                      <View style={styles.relatedImageWrapper}>
+                          <Image 
+                            source={{ uri: relImageUrl }}
+                            style={styles.relatedImage}
+                          />
+                          {/* Badge Sale cho sản phẩm liên quan */}
+                          {relPriceInfo.hasDiscount && (
+                             <View style={styles.relatedSaleBadge}>
+                                <Text style={styles.relatedSaleBadgeText}>
+                                  {relProduct.discount_type === 'percent' 
+                                    ? `-${Math.round(Number(relProduct.discount_value))}%` 
+                                    : 'SALE'}
+                                </Text>
+                             </View>
+                          )}
+                      </View>
+
+                      <View style={styles.relatedInfo}>
+                        <Text style={styles.relatedName} numberOfLines={1}>{relProduct.name}</Text>
+                        
+                        {/* Hiển thị giá sp liên quan */}
+                        <View style={styles.relatedPriceRow}>
+                            <Text style={[styles.relatedPrice, relPriceInfo.hasDiscount && {color: COLORS.sale}]}>
+                                {relPriceInfo.finalPrice.toLocaleString('vi-VN')}đ
+                            </Text>
+                            {relPriceInfo.hasDiscount && (
+                                <Text style={styles.relatedOriginalPrice}>
+                                    {relPriceInfo.originalPrice.toLocaleString('vi-VN')}đ
+                                </Text>
+                            )}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
           )}
@@ -339,7 +482,7 @@ export default function ProductDetailScreen() {
             <View style={{ alignItems: 'flex-end', marginRight: 16 }}>
               <Text style={styles.totalLabel}>Tổng cộng</Text>
               <Text style={styles.totalPrice}>
-                {(product.price * quantity).toLocaleString('vi-VN')}đ
+                {(finalPrice * quantity).toLocaleString('vi-VN')}đ
               </Text>
             </View>
             
@@ -370,6 +513,12 @@ export default function ProductDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#f9fafb',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: '#f9fafb',
   },
   header: {
@@ -472,6 +621,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  // Sale Badge Styles
+  saleBadge: {
+    position: 'absolute',
+    top: 16,
+    left: 16, 
+    marginTop: 35, // Đẩy xuống dưới Category Badge
+    backgroundColor: COLORS.sale,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    zIndex: 2,
+  },
+  saleBadgeText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -545,7 +711,13 @@ const styles = StyleSheet.create({
   priceText: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#2563eb',
+    color: '#3b82f6',
+  },
+  originalPriceText: {
+    fontSize: 14,
+    color: '#9ca3af',
+    textDecorationLine: 'line-through',
+    textAlign: 'right',
   },
   descriptionBox: {
     padding: 20,
@@ -717,12 +889,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9fafb',
     borderRadius: 12,
     padding: 8,
+    overflow: 'hidden', // Quan trọng để bo góc ảnh và badge
   },
-  relatedImage: {
+  relatedImageWrapper: {
+    position: 'relative',
     width: '100%',
     aspectRatio: 1,
     borderRadius: 8,
     marginBottom: 8,
+    overflow: 'hidden',
+  },
+  relatedImage: {
+    width: '100%',
+    height: '100%',
+  },
+  // Style cho Badge của Related Products
+  relatedSaleBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: COLORS.sale,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    zIndex: 2,
+  },
+  relatedSaleBadgeText: {
+    color: 'white',
+    fontSize: 9,
+    fontWeight: 'bold',
   },
   relatedInfo: {
     paddingHorizontal: 4,
@@ -733,10 +928,21 @@ const styles = StyleSheet.create({
     color: '#111827',
     marginBottom: 4,
   },
+  relatedPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
   relatedPrice: {
     fontSize: 13,
     color: '#2563eb',
     fontWeight: '600',
+  },
+  relatedOriginalPrice: {
+    fontSize: 10,
+    color: '#9ca3af',
+    textDecorationLine: 'line-through',
   },
   bottomBar: {
     position: 'absolute',

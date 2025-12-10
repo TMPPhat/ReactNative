@@ -1,71 +1,158 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { ChevronRight, Search, ShoppingCart, TrendingUp } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
 
-// SỬA ĐƯỜNG DẪN IMPORT (Dùng tương đối để tránh lỗi)
-import { useCart } from '../../components/CartContext';
+// --- Import Context & Components ---
 import { CartDrawer } from '../../components/CartDrawer';
+import { useAuth } from '../../context/AuthContext';
+import { useCart } from '../../context/CartContext';
 
-// --- Dữ liệu giả lập ---
-const categories = [
-  { id: 1, name: 'Đồ uống', icon: '🥤' },
-  { id: 2, name: 'Đồ ăn', icon: '🍔' },
-  { id: 3, name: 'Tráng miệng', icon: '🍰' },
-  { id: 4, name: 'Combo', icon: '🎁' },
-];
+// --- Import API ---
+import apiCategory, { CategoryData } from '../../api/apiCategory';
+import apiProduct, { ProductData } from '../../api/apiProduct';
 
-const featuredProducts = [
-  { id: 1, name: 'Cà phê sữa đá', price: 35000, category: 'Đồ uống', image: 'https://images.unsplash.com/photo-1541167760496-1628856ab772?w=400' },
-  { id: 2, name: 'Trà sữa trân châu', price: 45000, category: 'Đồ uống', image: 'https://images.unsplash.com/photo-1558981396-5fcf84bdf14d?w=400' },
-  { id: 3, name: 'Bánh mì thịt', price: 25000, category: 'Đồ ăn', image: 'https://images.unsplash.com/photo-1634421133373-c1f9652a208d?w=400' },
-  { id: 4, name: 'Phở bò', price: 55000, category: 'Đồ ăn', image: 'https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43?w=400' },
-];
-
+// Banner tĩnh
 const banners = [
-  { id: 1, title: 'Giảm 30%', subtitle: 'Cho đơn đầu tiên', colors: ['#fb923c', '#ec4899'] as const }, // orange-400 to pink-500
-  { id: 2, title: 'Freeship', subtitle: 'Đơn từ 100k', colors: ['#60a5fa', '#06b6d4'] as const }, // blue-400 to cyan-500
+  { id: 1, title: 'Giảm 30%', subtitle: 'Cho đơn đầu tiên', colors: ['#fb923c', '#ec4899'] as const },
+  { id: 2, title: 'Freeship', subtitle: 'Đơn từ 100k', colors: ['#60a5fa', '#06b6d4'] as const },
 ];
+
+// Màu sắc chủ đạo
+const COLORS = {
+  primary: '#3b82f6',
+  sale: '#e11d48', // Màu đỏ cho sale
+  textLight: '#6b7280',
+};
 
 export default function HomeScreen() {
   const router = useRouter();
   
-  // State quản lý hiển thị Giỏ hàng
-  const [isCartOpen, setIsCartOpen] = useState(false);
-
-  // Hook lấy dữ liệu giỏ hàng
+  // Contexts
+  const { user } = useAuth();
   const { addToCart, getTotalItems } = useCart();
+
+  // State
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [categories, setCategories] = useState<CategoryData[]>([]);
+  const [featuredProducts, setFeaturedProducts] = useState<ProductData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // --- Helper: Tính giá sản phẩm ---
+  const calculatePrice = (product: ProductData) => {
+    let finalPrice = Number(product.price);
+    let originalPrice = Number(product.price);
+    let hasDiscount = false;
+
+    if (product.is_on_sale) {
+      const discountVal = Number(product.discount_value);
+      if (product.discount_type === 'percent') {
+        finalPrice = originalPrice * (1 - discountVal / 100);
+        hasDiscount = true;
+      } else if (product.discount_type === 'amount') {
+        finalPrice = originalPrice - discountVal;
+        hasDiscount = true;
+      }
+    }
+    
+    return {
+      finalPrice: Math.max(0, finalPrice),
+      originalPrice: originalPrice,
+      hasDiscount: hasDiscount
+    };
+  };
+
+  // Hàm load dữ liệu
+  const fetchData = async () => {
+    try {
+      const [catRes, prodRes] = await Promise.all([
+        apiCategory.getAllCategories(),
+        apiProduct.getAllProducts()
+      ]);
+
+      setCategories(catRes.results || []);
+      
+      const allProducts = prodRes.results || [];
+      // Lấy 4 sản phẩm đầu tiên làm nổi bật
+      setFeaturedProducts(allProducts.slice(0, 4));
+
+    } catch (error) {
+      console.error("Lỗi tải trang chủ:", error);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchData();
+  };
 
   const handleOpenCart = () => {
     setIsCartOpen(true);
   };
 
-  const handleProductClick = (product: any) => {
-    // Chuyển sang trang chi tiết sản phẩm với ID
+  const handleProductClick = (product: ProductData) => {
     router.push({ pathname: '/product-detail', params: { id: product.id } });
   };
 
-  const onAddToCart = (product: any) => {
+  const onAddToCart = (product: ProductData) => {
+    const imageUrl = product.image && product.image.length > 0 
+      ? product.image[0].url 
+      : 'https://via.placeholder.com/400';
+
+    // Thêm vào giỏ với giá đã giảm
+    const { finalPrice } = calculatePrice(product);
+
     addToCart({
       id: product.id,
       name: product.name,
-      price: product.price,
-      image: product.image
+      price: finalPrice,
+      image: imageUrl
+    });
+  };
+
+  // Điều hướng danh mục
+  const handleCategoryPress = (categoryName: string) => {
+    router.push({ 
+      pathname: '/(tabs)/products', 
+      params: { category: categoryName } 
+    });
+  };
+
+  // Xem tất cả
+  const handleSeeAllCategories = () => {
+    router.push({ 
+      pathname: '/(tabs)/products', 
+      params: { openFilter: 'true' } 
     });
   };
 
   return (
     <View style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false} 
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#3b82f6']} />
+        }
+      >
         
         {/* Header Gradient */}
         <LinearGradient
@@ -75,10 +162,9 @@ export default function HomeScreen() {
           <View style={styles.headerContent}>
             <View>
               <Text style={styles.greetingText}>Xin chào,</Text>
-              <Text style={styles.brandText}>TMP.MP Shop</Text>
+              <Text style={styles.brandText}>{user?.name || 'Khách hàng'}</Text>
             </View>
             
-            {/* Cart Button */}
             <TouchableOpacity 
               onPress={handleOpenCart}
               style={styles.cartButton}
@@ -92,15 +178,14 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Search Bar */}
-          <View style={styles.searchContainer}>
+          <TouchableOpacity 
+            activeOpacity={0.9}
+            onPress={() => router.push('/(tabs)/products')} 
+            style={styles.searchContainer}
+          >
             <Search size={20} color="#9ca3af" style={{ marginRight: 8 }} />
-            <TextInput 
-              placeholder="Tìm kiếm sản phẩm..." 
-              placeholderTextColor="#9ca3af"
-              style={styles.searchInput}
-            />
-          </View>
+            <Text style={styles.searchPlaceholder}>Tìm kiếm sản phẩm...</Text>
+          </TouchableOpacity>
         </LinearGradient>
 
         {/* Banners */}
@@ -126,22 +211,34 @@ export default function HomeScreen() {
         <View style={styles.sectionContainer}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Danh mục</Text>
-            <TouchableOpacity style={styles.seeMoreBtn}>
+            <TouchableOpacity onPress={handleSeeAllCategories} style={styles.seeMoreBtn}>
               <Text style={styles.seeMoreText}>Xem tất cả</Text>
               <ChevronRight size={16} color="#3b82f6" />
             </TouchableOpacity>
           </View>
           
-          <View style={styles.categoryGrid}>
-            {categories.map((cat) => (
-              <TouchableOpacity key={cat.id} style={styles.categoryItem}>
-                <View style={styles.categoryIconContainer}>
-                  <Text style={{ fontSize: 28 }}>{cat.icon}</Text>
-                </View>
-                <Text style={styles.categoryName}>{cat.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {isLoading ? (
+             <ActivityIndicator size="small" color="#3b82f6" style={{padding: 20}} />
+          ) : (
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              contentContainerStyle={styles.categoryScroll}
+            >
+              {categories.map((cat) => ( 
+                <TouchableOpacity 
+                  key={cat.id} 
+                  style={styles.categoryItem} 
+                  onPress={() => handleCategoryPress(cat.name)}
+                >
+                  <View style={styles.categoryIconContainer}>
+                    <Text style={{ fontSize: 28 }}>{cat.image || '🍽️'}</Text>
+                  </View>
+                  <Text style={styles.categoryName} numberOfLines={2}>{cat.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
         </View>
 
         {/* Featured Products */}
@@ -151,40 +248,80 @@ export default function HomeScreen() {
               <TrendingUp size={20} color="#f97316" style={{ marginRight: 6 }} />
               <Text style={styles.sectionTitle}>Nổi bật</Text>
             </View>
-            <TouchableOpacity style={styles.seeMoreBtn}>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/products')} style={styles.seeMoreBtn}>
               <Text style={styles.seeMoreText}>Xem tất cả</Text>
               <ChevronRight size={16} color="#3b82f6" />
             </TouchableOpacity>
           </View>
 
-          <View style={styles.productGrid}>
-            {featuredProducts.map((product) => (
-              <TouchableOpacity 
-                key={product.id} 
-                style={styles.productCard}
-                onPress={() => handleProductClick(product)}
-                activeOpacity={0.9}
-              >
-                <Image source={{ uri: product.image }} style={styles.productImage} />
-                <View style={styles.productInfo}>
-                  <Text style={styles.productName} numberOfLines={1}>{product.name}</Text>
-                  <Text style={styles.productPrice}>{product.price.toLocaleString('vi-VN')}đ</Text>
+          {isLoading ? (
+             <View style={{height: 200, justifyContent: 'center'}}>
+                <ActivityIndicator size="large" color="#3b82f6" />
+             </View>
+          ) : (
+            <View style={styles.productGrid}>
+              {featuredProducts.map((product) => {
+                const imageUrl = product.image && product.image.length > 0 
+                  ? product.image[0].url 
+                  : 'https://via.placeholder.com/400';
+                
+                // Tính toán giá
+                const { finalPrice, originalPrice, hasDiscount } = calculatePrice(product);
+
+                return (
                   <TouchableOpacity 
-                    style={styles.addButton}
-                    onPress={() => onAddToCart(product)}
+                    key={product.id} 
+                    style={styles.productCard}
+                    onPress={() => handleProductClick(product)}
+                    activeOpacity={0.9}
                   >
-                    <Text style={styles.addButtonText}>Thêm vào giỏ</Text>
+                    <View style={styles.imageWrapper}>
+                      <Image source={{ uri: imageUrl }} style={styles.productImage} resizeMode="cover" />
+                      
+                      {/* Sale Badge */}
+                      {hasDiscount && (
+                         <View style={styles.saleBadge}>
+                            <Text style={styles.saleBadgeText}>
+                              {product.discount_type === 'percent' 
+                                ? `-${Math.round(Number(product.discount_value))}%` 
+                                : 'SALE'}
+                            </Text>
+                         </View>
+                      )}
+                    </View>
+
+                    <View style={styles.productInfo}>
+                      <Text style={styles.productName} numberOfLines={1}>{product.name}</Text>
+                      
+                      {/* Price Row: Giá giảm + Giá gốc (nếu có) */}
+                      <View style={styles.priceRow}>
+                         <Text style={[styles.productPrice, hasDiscount && {color: COLORS.sale}]}>
+                            {finalPrice.toLocaleString('vi-VN')}đ
+                         </Text>
+                         {hasDiscount && (
+                           <Text style={styles.originalPrice}>
+                             {originalPrice.toLocaleString('vi-VN')}đ
+                           </Text>
+                         )}
+                      </View>
+
+                      <TouchableOpacity 
+                        style={styles.addButton}
+                        onPress={() => onAddToCart(product)}
+                      >
+                        <Text style={styles.addButtonText}>Thêm vào giỏ</Text>
+                      </TouchableOpacity>
+                    </View>
                   </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
+                );
+              })}
+            </View>
+          )}
         </View>
 
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Cart Drawer Component */}
       <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} />
     </View>
   );
@@ -260,10 +397,10 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 5,
   },
-  searchInput: {
+  searchPlaceholder: {
     flex: 1,
     fontSize: 15,
-    color: '#111827',
+    color: '#9ca3af',
   },
   bannerList: {
     paddingHorizontal: 20,
@@ -327,19 +464,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginRight: 2,
   },
-  categoryGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  categoryScroll: {
+    paddingRight: 20,
   },
   categoryItem: {
     alignItems: 'center',
-    width: '23%',
+    width: 80,
+    marginRight: 16,
   },
   categoryIconContainer: {
     backgroundColor: 'white',
-    width: '100%',
-    aspectRatio: 1,
-    borderRadius: 16,
+    width: 70, 
+    height: 70,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
@@ -353,6 +490,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#374151',
     textAlign: 'center',
+    height: 32,
   },
   productGrid: {
     flexDirection: 'row',
@@ -371,10 +509,31 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  productImage: {
+  imageWrapper: {
+    position: 'relative',
     width: '100%',
     height: 140,
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
     backgroundColor: '#f3f4f6',
+  },
+  // SALE BADGE STYLES
+  saleBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: COLORS.sale,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    zIndex: 2,
+  },
+  saleBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   productInfo: {
     padding: 12,
@@ -385,11 +544,23 @@ const styles = StyleSheet.create({
     color: '#111827',
     marginBottom: 4,
   },
+  // PRICE ROW STYLES
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    flexWrap: 'wrap',
+    gap: 6,
+  },
   productPrice: {
     fontSize: 15,
     fontWeight: 'bold',
     color: '#3b82f6',
-    marginBottom: 8,
+  },
+  originalPrice: {
+    fontSize: 12,
+    color: '#9ca3af',
+    textDecorationLine: 'line-through',
   },
   addButton: {
     backgroundColor: '#3b82f6',

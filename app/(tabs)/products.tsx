@@ -1,10 +1,12 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Check, Search, ShoppingCart, SlidersHorizontal, X } from 'lucide-react-native';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Modal,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,35 +16,12 @@ import {
 } from 'react-native';
 
 // --- Import Context & Components ---
-import { useCart } from '../../components/CartContext';
 import { CartDrawer } from '../../components/CartDrawer';
+import { useCart } from '../../context/CartContext';
 
-// --- Định nghĩa kiểu dữ liệu ---
-interface Product {
-  id: number;
-  name: string;
-  price: number;
-  category: string;
-  image: string;
-}
-
-// --- Dữ liệu giả lập ---
-const allProducts: Product[] = [
-  { id: 1, name: 'Cà phê sữa đá', price: 35000, category: 'Đồ uống', image: 'coffee drink' },
-  { id: 2, name: 'Trà sữa trân châu', price: 45000, category: 'Đồ uống', image: 'bubble tea' },
-  { id: 3, name: 'Nước ép cam', price: 40000, category: 'Đồ uống', image: 'orange juice' },
-  { id: 4, name: 'Smoothie dâu', price: 50000, category: 'Đồ uống', image: 'strawberry smoothie' },
-  { id: 5, name: 'Bánh mì thịt', price: 25000, category: 'Đồ ăn', image: 'vietnamese sandwich' },
-  { id: 6, name: 'Phở bò', price: 55000, category: 'Đồ ăn', image: 'pho noodles' },
-  { id: 7, name: 'Cơm gà', price: 45000, category: 'Đồ ăn', image: 'chicken rice' },
-  { id: 8, name: 'Bún bò Huế', price: 50000, category: 'Đồ ăn', image: 'bun bo hue' },
-  { id: 9, name: 'Tiramisu', price: 45000, category: 'Tráng miệng', image: 'tiramisu cake' },
-  { id: 10, name: 'Bánh flan', price: 20000, category: 'Tráng miệng', image: 'flan dessert' },
-  { id: 11, name: 'Chè thái', price: 30000, category: 'Tráng miệng', image: 'che thai dessert' },
-  { id: 12, name: 'Kem dừa', price: 35000, category: 'Tráng miệng', image: 'coconut ice cream' },
-];
-
-const categories = ['Tất cả', 'Đồ uống', 'Đồ ăn', 'Tráng miệng'];
+// --- Import APIs ---
+import apiCategory, { CategoryData } from '../../api/apiCategory';
+import apiProduct, { ProductData } from '../../api/apiProduct';
 
 // Màu sắc chủ đạo
 const COLORS = {
@@ -56,27 +35,108 @@ const COLORS = {
   placeholder: '#9ca3af',
   red: '#ef4444',
   border: '#e5e7eb',
+  sale: '#e11d48', // Màu đỏ cho giá giảm
 };
 
 export default function ProductsScreen() {
   const router = useRouter();
   const { addToCart, getTotalItems } = useCart();
   
-  // --- State ---
+  // Lấy tham số từ navigation
+  const params = useLocalSearchParams();
+  
+  // --- Data State ---
+  const [products, setProducts] = useState<ProductData[]>([]);
+  const [categories, setCategories] = useState<CategoryData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // --- Filter State ---
   const [selectedCategory, setSelectedCategory] = useState('Tất cả');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCartOpen, setIsCartOpen] = useState(false);
   
   // State cho bộ lọc nâng cao
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [priceRange, setPriceRange] = useState<'all' | 'under30' | '30-50' | 'above50'>('all');
+  const [priceRange, setPriceRange] = useState<'all' | 'under50' | '50-100' | 'above100'>('all');
   const [sortBy, setSortBy] = useState<'default' | 'price-low' | 'price-high' | 'name'>('default');
+
+  // --- Helper: Tính giá sản phẩm ---
+  const calculatePrice = (product: ProductData) => {
+    let finalPrice = Number(product.price);
+    let originalPrice = Number(product.price);
+    let hasDiscount = false;
+
+    if (product.is_on_sale) {
+      const discountVal = Number(product.discount_value);
+      if (product.discount_type === 'percent') {
+        finalPrice = originalPrice * (1 - discountVal / 100);
+        hasDiscount = true;
+      } else if (product.discount_type === 'amount') {
+        finalPrice = originalPrice - discountVal;
+        hasDiscount = true;
+      }
+    }
+    
+    return {
+      finalPrice: Math.max(0, finalPrice),
+      originalPrice: originalPrice,
+      hasDiscount: hasDiscount
+    };
+  };
+
+  // --- Fetch Data ---
+  const fetchData = async () => {
+    try {
+      const [productsRes, categoriesRes] = await Promise.all([
+        apiProduct.getAllProducts(),
+        apiCategory.getAllCategories()
+      ]);
+
+      setProducts(productsRes.results || []);
+      setCategories(categoriesRes.results || []);
+    } catch (error) {
+      console.error("Lỗi lấy dữ liệu:", error);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // --- Xử lý Params ---
+  useEffect(() => {
+    if (params.category) {
+      const categoryName = Array.isArray(params.category) ? params.category[0] : params.category;
+      if (categoryName !== selectedCategory) {
+        setSelectedCategory(categoryName);
+      }
+      router.setParams({ category: undefined });
+    }
+    
+    if (params.openFilter === 'true') {
+      setIsFilterOpen(true);
+      router.setParams({ openFilter: undefined });
+    }
+  }, [params.category, params.openFilter]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchData();
+  };
 
   // --- Filter & Sort Logic ---
   const filteredProducts = useMemo(() => {
-    let result = allProducts.filter((product) => {
+    let result = products.filter((product) => {
+      // Dùng giá sau khi giảm để lọc khoảng giá (thực tế hơn)
+      const { finalPrice } = calculatePrice(product);
+
       // Lọc theo Category
-      const matchesCategory = selectedCategory === 'Tất cả' || product.category === selectedCategory;
+      const matchesCategory = selectedCategory === 'Tất cả' || 
+        product.category?.some(cat => cat.value === selectedCategory);
       
       // Lọc theo Search
       const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -84,41 +144,48 @@ export default function ProductsScreen() {
       // Lọc theo Price Range
       const matchesPriceRange =
         priceRange === 'all' ||
-        (priceRange === 'under30' && product.price < 30000) ||
-        (priceRange === '30-50' && product.price >= 30000 && product.price <= 50000) ||
-        (priceRange === 'above50' && product.price > 50000);
+        (priceRange === 'under50' && finalPrice < 50000) ||
+        (priceRange === '50-100' && finalPrice >= 50000 && finalPrice <= 100000) ||
+        (priceRange === 'above100' && finalPrice > 100000);
 
       return matchesCategory && matchesSearch && matchesPriceRange;
     });
 
     // Sắp xếp
     if (sortBy === 'price-low') {
-      result.sort((a, b) => a.price - b.price);
+      result.sort((a, b) => calculatePrice(a).finalPrice - calculatePrice(b).finalPrice);
     } else if (sortBy === 'price-high') {
-      result.sort((a, b) => b.price - a.price);
+      result.sort((a, b) => calculatePrice(b).finalPrice - calculatePrice(a).finalPrice);
     } else if (sortBy === 'name') {
       result.sort((a, b) => a.name.localeCompare(b.name));
     }
 
     return result;
-  }, [selectedCategory, searchQuery, priceRange, sortBy]);
+  }, [products, selectedCategory, searchQuery, priceRange, sortBy]);
 
   // --- Handlers ---
-  const handleAddToCart = (product: Product) => {
+  const handleAddToCart = (product: ProductData) => {
+    const imageUrl = product.image && product.image.length > 0 
+      ? product.image[0].url 
+      : 'https://via.placeholder.com/400';
+
+    // Tính giá thực tế (sau giảm giá) để thêm vào giỏ
+    const { finalPrice } = calculatePrice(product);
+
     addToCart({
       id: product.id,
       name: product.name,
-      price: product.price,
-      image: `https://source.unsplash.com/400x400/?${product.image}`
+      price: finalPrice, // Sử dụng giá đã giảm
+      image: imageUrl
     });
   };
 
-  const handleProductClick = (product: Product) => {
+  const handleProductClick = (product: ProductData) => {
     router.push({ pathname: '/product-detail', params: { id: product.id } });
   };
 
   const resetFilters = () => {
-    setSelectedCategory('Tất cả'); // Reset danh mục
+    setSelectedCategory('Tất cả');
     setPriceRange('all');
     setSortBy('default');
   };
@@ -128,9 +195,8 @@ export default function ProductsScreen() {
       {/* --- Header Fixed --- */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>Sản phẩm</Text>
+          <Text style={styles.headerTitle}>Thực đơn</Text>
           
-          {/* Cart Button */}
           <TouchableOpacity 
             onPress={() => setIsCartOpen(true)}
             style={styles.cartButton}
@@ -150,7 +216,7 @@ export default function ProductsScreen() {
             <Search size={20} color={COLORS.placeholder} style={{ marginRight: 8 }} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Tìm kiếm sản phẩm..."
+              placeholder="Tìm món ngon..."
               placeholderTextColor={COLORS.placeholder}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -172,22 +238,38 @@ export default function ProductsScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.categoryList}
           >
-            {categories.map((category) => (
-              <TouchableOpacity
-                key={category}
-                onPress={() => setSelectedCategory(category)}
+            <TouchableOpacity
+                onPress={() => setSelectedCategory('Tất cả')}
                 style={[
                   styles.categoryChip,
-                  selectedCategory === category && styles.categoryChipActive
+                  selectedCategory === 'Tất cả' && styles.categoryChipActive
                 ]}
               >
+                <Text style={[
+                  styles.categoryText,
+                  selectedCategory === 'Tất cả' && styles.categoryTextActive
+                ]}>
+                  Tất cả
+                </Text>
+            </TouchableOpacity>
+
+            {categories.map((cat) => (
+              <TouchableOpacity
+                key={cat.id}
+                onPress={() => setSelectedCategory(cat.name)}
+                style={[
+                  styles.categoryChip,
+                  selectedCategory === cat.name && styles.categoryChipActive
+                ]}
+              >
+                <Text style={{marginRight: 4}}>{cat.image}</Text> 
                 <Text 
                   style={[
                     styles.categoryText,
-                    selectedCategory === category && styles.categoryTextActive
+                    selectedCategory === cat.name && styles.categoryTextActive
                   ]}
                 >
-                  {category}
+                  {cat.name}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -196,62 +278,112 @@ export default function ProductsScreen() {
       </View>
 
       {/* --- Products Grid --- */}
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent} 
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.resultCount}>
-          {filteredProducts.length} sản phẩm
-        </Text>
-
-        <View style={styles.grid}>
-          {filteredProducts.map((product) => (
-            <TouchableOpacity 
-              key={product.id} 
-              style={styles.productCard}
-              onPress={() => handleProductClick(product)}
-              activeOpacity={0.9}
-            >
-              {/* Product Image */}
-              <View style={styles.imageWrapper}>
-                <Image 
-                  source={{ uri: `https://source.unsplash.com/400x400/?${product.image}` }}
-                  style={styles.productImage}
-                  resizeMode="cover"
-                />
-                <View style={styles.categoryBadge}>
-                  <Text style={styles.categoryBadgeText}>{product.category}</Text>
-                </View>
-              </View>
-
-              {/* Product Info */}
-              <View style={styles.productInfo}>
-                <Text style={styles.productName} numberOfLines={1}>
-                  {product.name}
-                </Text>
-                <Text style={styles.productPrice}>
-                  {product.price.toLocaleString('vi-VN')}đ
-                </Text>
-                
-                <TouchableOpacity 
-                  style={styles.addButton}
-                  onPress={() => handleAddToCart(product)}
-                >
-                  <Text style={styles.addButtonText}>Thêm vào giỏ</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          ))}
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+            <Text style={{marginTop: 10, color: COLORS.textLight}}>Đang tải thực đơn...</Text>
         </View>
+      ) : (
+        <ScrollView 
+            contentContainerStyle={styles.scrollContent} 
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
+            }
+        >
+            <View style={styles.resultHeader}>
+              <Text style={styles.resultCount}>
+                Tìm thấy {filteredProducts.length} món
+              </Text>
+              {(selectedCategory !== 'Tất cả' || searchQuery) && (
+                 <TouchableOpacity onPress={() => {setSelectedCategory('Tất cả'); setSearchQuery('');}}>
+                    <Text style={{color: COLORS.primary, fontSize: 13}}>Xem tất cả</Text>
+                 </TouchableOpacity>
+              )}
+            </View>
 
-        {/* Spacer for bottom tab bar */}
-        <View style={{ height: 100 }} />
-      </ScrollView>
+            <View style={styles.grid}>
+            {filteredProducts.map((product) => {
+                const imageUrl = product.image && product.image.length > 0 
+                    ? product.image[0].url 
+                    : 'https://via.placeholder.com/400';
+                
+                const catName = product.category && product.category.length > 0 
+                    ? product.category[0].value 
+                    : '';
+
+                // Tính toán giá
+                const { finalPrice, originalPrice, hasDiscount } = calculatePrice(product);
+
+                return (
+                    <TouchableOpacity 
+                      key={product.id} 
+                      style={styles.productCard}
+                      onPress={() => handleProductClick(product)}
+                      activeOpacity={0.9}
+                    >
+                    <View style={styles.imageWrapper}>
+                        <Image 
+                          source={{ uri: imageUrl }}
+                          style={styles.productImage}
+                          resizeMode="cover"
+                        />
+                        {/* Sale Badge bên Trái */}
+                        {hasDiscount && (
+                           <View style={styles.saleBadge}>
+                              <Text style={styles.saleBadgeText}>
+                                {product.discount_type === 'percent' 
+                                  ? `-${Math.round(Number(product.discount_value))}%` 
+                                  : 'SALE'}
+                              </Text>
+                           </View>
+                        )}
+
+                        {/* Category Badge bên Phải */}
+                        {catName ? (
+                            <View style={styles.categoryBadge}>
+                                <Text style={styles.categoryBadgeText}>{catName}</Text>
+                            </View>
+                        ) : null}
+                    </View>
+
+                    <View style={styles.productInfo}>
+                        <Text style={styles.productName} numberOfLines={2}>
+                          {product.name}
+                        </Text>
+                        
+                        {/* Price Row: Giá giảm + Giá gốc (nếu có) */}
+                        <View style={styles.priceRow}>
+                           <Text style={[styles.productPrice, hasDiscount && {color: COLORS.sale}]}>
+                              {finalPrice.toLocaleString('vi-VN')}đ
+                           </Text>
+                           {hasDiscount && (
+                             <Text style={styles.originalPrice}>
+                               {originalPrice.toLocaleString('vi-VN')}đ
+                             </Text>
+                           )}
+                        </View>
+                        
+                        <TouchableOpacity 
+                          style={styles.addButton}
+                          onPress={() => handleAddToCart(product)}
+                        >
+                          <Text style={styles.addButtonText}>Thêm</Text>
+                        </TouchableOpacity>
+                    </View>
+                    </TouchableOpacity>
+                );
+            })}
+            </View>
+
+            <View style={{ height: 100 }} />
+        </ScrollView>
+      )}
 
       {/* --- Cart Drawer Modal --- */}
       <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} />
 
-      {/* --- Filter Modal (Updated) --- */}
+      {/* --- Filter Modal --- */}
       <Modal
         visible={isFilterOpen}
         transparent={true}
@@ -259,7 +391,6 @@ export default function ProductsScreen() {
         onRequestClose={() => setIsFilterOpen(false)}
       >
         <View style={styles.modalOverlay}>
-            {/* Backdrop Area - Tap to close */}
             <TouchableOpacity 
                 style={StyleSheet.absoluteFill} 
                 onPress={() => setIsFilterOpen(false)} 
@@ -277,27 +408,39 @@ export default function ProductsScreen() {
                 </View>
 
                 <ScrollView style={styles.modalBody}>
-                    {/* NEW: Category Section in Modal */}
+                    {/* Category Section */}
                     <View style={styles.filterSection}>
                         <View style={styles.sectionHeader}>
                             <View style={styles.sectionIndicator} />
                             <Text style={styles.sectionTitle}>Danh mục</Text>
                         </View>
                         <View style={styles.chipContainer}>
+                            <TouchableOpacity 
+                                onPress={() => setSelectedCategory('Tất cả')}
+                                style={[
+                                    styles.filterChip, 
+                                    selectedCategory === 'Tất cả' && styles.filterChipActive
+                                ]}
+                            >
+                                <Text style={[
+                                    styles.filterChipText, 
+                                    selectedCategory === 'Tất cả' && styles.filterChipTextActive
+                                ]}>Tất cả</Text>
+                            </TouchableOpacity>
                             {categories.map((cat) => (
                                 <TouchableOpacity 
-                                    key={cat}
-                                    onPress={() => setSelectedCategory(cat)}
+                                    key={cat.id}
+                                    onPress={() => setSelectedCategory(cat.name)}
                                     style={[
                                         styles.filterChip, 
-                                        selectedCategory === cat && styles.filterChipActive
+                                        selectedCategory === cat.name && styles.filterChipActive
                                     ]}
                                 >
                                     <Text style={[
                                         styles.filterChipText, 
-                                        selectedCategory === cat && styles.filterChipTextActive
+                                        selectedCategory === cat.name && styles.filterChipTextActive
                                     ]}>
-                                        {cat}
+                                        {cat.name}
                                     </Text>
                                 </TouchableOpacity>
                             ))}
@@ -318,22 +461,22 @@ export default function ProductsScreen() {
                                 <Text style={[styles.filterChipText, priceRange === 'all' && styles.filterChipTextActive]}>Tất cả</Text>
                             </TouchableOpacity>
                             <TouchableOpacity 
-                                onPress={() => setPriceRange('under30')}
-                                style={[styles.filterChip, priceRange === 'under30' && styles.filterChipActive]}
+                                onPress={() => setPriceRange('under50')}
+                                style={[styles.filterChip, priceRange === 'under50' && styles.filterChipActive]}
                             >
-                                <Text style={[styles.filterChipText, priceRange === 'under30' && styles.filterChipTextActive]}>Dưới 30k</Text>
+                                <Text style={[styles.filterChipText, priceRange === 'under50' && styles.filterChipTextActive]}>Dưới 50k</Text>
                             </TouchableOpacity>
                             <TouchableOpacity 
-                                onPress={() => setPriceRange('30-50')}
-                                style={[styles.filterChip, priceRange === '30-50' && styles.filterChipActive]}
+                                onPress={() => setPriceRange('50-100')}
+                                style={[styles.filterChip, priceRange === '50-100' && styles.filterChipActive]}
                             >
-                                <Text style={[styles.filterChipText, priceRange === '30-50' && styles.filterChipTextActive]}>30k - 50k</Text>
+                                <Text style={[styles.filterChipText, priceRange === '50-100' && styles.filterChipTextActive]}>50k - 100k</Text>
                             </TouchableOpacity>
                             <TouchableOpacity 
-                                onPress={() => setPriceRange('above50')}
-                                style={[styles.filterChip, priceRange === 'above50' && styles.filterChipActive]}
+                                onPress={() => setPriceRange('above100')}
+                                style={[styles.filterChip, priceRange === 'above100' && styles.filterChipActive]}
                             >
-                                <Text style={[styles.filterChipText, priceRange === 'above50' && styles.filterChipTextActive]}>Trên 50k</Text>
+                                <Text style={[styles.filterChipText, priceRange === 'above100' && styles.filterChipTextActive]}>Trên 100k</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -366,7 +509,6 @@ export default function ProductsScreen() {
                     </View>
                 </ScrollView>
 
-                {/* Modal Footer */}
                 <View style={styles.modalFooter}>
                     <TouchableOpacity 
                         onPress={resetFilters}
@@ -392,6 +534,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.bg,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
@@ -476,6 +623,8 @@ const styles = StyleSheet.create({
     paddingRight: 20,
   },
   categoryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
@@ -496,10 +645,15 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 20,
   },
+  resultHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   resultCount: {
     fontSize: 14,
     color: '#6b7280',
-    marginBottom: 12,
   },
   grid: {
     flexDirection: 'row',
@@ -542,6 +696,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#4b5563',
   },
+  // NEW STYLES FOR SALE BADGE
+  saleBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: COLORS.sale,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    zIndex: 2,
+  },
+  saleBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
   productInfo: {
     padding: 12,
   },
@@ -550,12 +720,25 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: COLORS.text,
     marginBottom: 4,
+    height: 40,
+  },
+  // UPDATED PRICE STYLES
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    flexWrap: 'wrap',
+    gap: 6,
   },
   productPrice: {
     fontSize: 15,
     fontWeight: 'bold',
     color: COLORS.primary,
-    marginBottom: 8,
+  },
+  originalPrice: {
+    fontSize: 12,
+    color: '#9ca3af',
+    textDecorationLine: 'line-through',
   },
   addButton: {
     backgroundColor: COLORS.primary,
@@ -641,7 +824,7 @@ const styles = StyleSheet.create({
   },
   filterChipActive: {
     borderColor: COLORS.primary,
-    backgroundColor: '#eff6ff', // blue-50
+    backgroundColor: '#eff6ff',
   },
   filterChipText: {
     fontSize: 14,
