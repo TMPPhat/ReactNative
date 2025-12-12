@@ -10,6 +10,7 @@ export const CONFIG = {
   ORDER_TABLE_ID: '767217',    // Orders
   ORDER_ITEM_TABLE_ID: '767229', // Order Items
   ORDER_STATUS_HISTORY_TABLE_ID: '767254', // Order Status History
+  FAVORITE_TABLE_ID: '770930', // Favorite Products
   
   BASEROW_BASE_URL: 'https://api.baserow.io/api/database/rows/table/',
 

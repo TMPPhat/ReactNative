@@ -1,5 +1,5 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 // 1. Thêm các import cần thiết cho Notification
@@ -18,7 +18,7 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-
+  const segments = useSegments();
   // 3. State quản lý thông báo
   const [expoPushToken, setExpoPushToken] = useState('');
   const [notification, setNotification] = useState<Notifications.Notification | undefined>(undefined);
@@ -55,6 +55,10 @@ export default function RootLayout() {
     };
   }, []);
 
+    const hideAiAssistant = segments.some(segment => 
+    ['intro', 'login', 'signup', 'checkout', 'address', 'settings', 'help'].includes(segment)
+  );
+
   return (
     // Bọc CartProvider ở ngoài cùng để toàn bộ app dùng được giỏ hàng
     <AuthProvider>
@@ -77,7 +81,7 @@ export default function RootLayout() {
             <Stack.Screen name="help" options={{ headerShown: false }} />
 
           </Stack>
-          <AiAssistant /> 
+          {!hideAiAssistant && <AiAssistant />}
           <StatusBar style="auto" />
         </ThemeProvider>
       </CartProvider>

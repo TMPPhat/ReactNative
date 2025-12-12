@@ -104,10 +104,7 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{ headerShown: false }}
       tabBar={(props) => <CustomTabBar {...props} />}
-    >
-      {/* Tab index dùng để redirect sang home, nút sẽ bị ẩn trong CustomTabBar */}
-      <Tabs.Screen name="index" options={{ href: null }} />
-      
+    >      
       {/* Các tab chính thức */}
       <Tabs.Screen name="home" options={{ title: 'Trang chủ' }} />
       <Tabs.Screen name="products" options={{ title: 'Sản phẩm' }} />

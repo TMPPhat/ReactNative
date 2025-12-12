@@ -27,9 +27,11 @@ import {
 
 // Import Context
 import { CartDrawer } from '../components/CartDrawer';
+import { useAuth } from '../context/AuthContext'; // Import AuthContext
 import { useCart } from '../context/CartContext';
 
 // Import API
+import apiFavorite from '../api/apiFavorite'; // Import apiFavorite
 import apiProduct, { ProductData } from '../api/apiProduct';
 import apiReview, { ReviewData } from '../api/apiReview';
 
@@ -44,6 +46,7 @@ export default function ProductDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { addToCart, getTotalItems } = useCart();
+  const { user } = useAuth(); // Lấy user để xử lý yêu thích
   
   // Lấy ID sản phẩm
   const productId = Number(params.id);
@@ -54,9 +57,13 @@ export default function ProductDetailScreen() {
   const [relatedProducts, setRelatedProducts] = useState<ProductData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Favorite State
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [favoriteRowId, setFavoriteRowId] = useState<number | null>(null); // ID dòng trong bảng Favorites
+  const [currentFavIds, setCurrentFavIds] = useState<number[]>([]); // Danh sách ID đang like
+
   // UI State
   const [quantity, setQuantity] = useState(1);
-  const [isFavorite, setIsFavorite] = useState(false);
   const [selectedSize, setSelectedSize] = useState("M");
   const [isCartOpen, setIsCartOpen] = useState(false);
 
@@ -91,7 +98,7 @@ export default function ProductDetailScreen() {
         setIsLoading(true);
         if (!productId) return;
 
-        // 1. Lấy chi tiết sản phẩm và Đánh giá song song
+        // 1. Gọi API Product và Review
         const [productData, reviewsRes] = await Promise.all([
           apiProduct.getProductDetail(productId),
           apiReview.getReviewsByProductId(productId)
@@ -100,11 +107,29 @@ export default function ProductDetailScreen() {
         setProduct(productData);
         setReviews(reviewsRes.results || []);
 
-        // 2. Lấy sản phẩm liên quan
+        // 2. Kiểm tra trạng thái yêu thích (Nếu đã đăng nhập)
+        if (user) {
+            const favRes = await apiFavorite.getFavoritesByUser(user.id);
+            if (favRes.results && favRes.results.length > 0) {
+                const favData = favRes.results[0];
+                setFavoriteRowId(favData.id);
+                // Lấy danh sách ID sản phẩm từ mảng object
+                const ids = favData.products.map((p: any) => p.id);
+                setCurrentFavIds(ids);
+                // Check xem sản phẩm hiện tại có trong list không
+                setIsFavorite(ids.includes(productId));
+            } else {
+                // User chưa có dòng favorite nào
+                setFavoriteRowId(null);
+                setCurrentFavIds([]);
+                setIsFavorite(false);
+            }
+        }
+
+        // 3. Lấy sản phẩm liên quan
         const allProductsRes = await apiProduct.getAllProducts();
         const allProds = allProductsRes.results || [];
         
-        // Lọc sản phẩm cùng danh mục và khác ID hiện tại
         const currentCategory = productData.category?.[0]?.value;
         const related = allProds.filter((p: ProductData) => 
           p.id !== productId && 
@@ -123,7 +148,45 @@ export default function ProductDetailScreen() {
     };
 
     fetchDetailData();
-  }, [productId]);
+  }, [productId, user]);
+
+  // --- Handle Favorite Toggle ---
+  const handleToggleFavorite = async () => {
+    if (!user) {
+        Alert.alert("Yêu cầu", "Vui lòng đăng nhập để thêm vào yêu thích.");
+        return;
+    }
+
+    try {
+        let newIds = [];
+        if (isFavorite) {
+            // Nếu đang thích -> Bỏ thích (Xóa ID khỏi mảng)
+            newIds = currentFavIds.filter(id => id !== productId);
+        } else {
+            // Nếu chưa thích -> Thêm thích (Thêm ID vào mảng)
+            newIds = [...currentFavIds, productId];
+        }
+
+        // Cập nhật UI ngay lập tức (Optimistic update)
+        setIsFavorite(!isFavorite);
+        setCurrentFavIds(newIds);
+
+        if (favoriteRowId) {
+            // Update dòng cũ
+            await apiFavorite.updateFavoriteList(favoriteRowId, newIds);
+        } else {
+            // Tạo dòng mới
+            const newRow = await apiFavorite.createFavorite(user.id, newIds);
+            setFavoriteRowId(newRow.id);
+        }
+
+    } catch (error) {
+        console.error("Lỗi cập nhật yêu thích:", error);
+        // Revert UI nếu lỗi
+        setIsFavorite(!isFavorite);
+        Alert.alert("Lỗi", "Không thể cập nhật danh sách yêu thích.");
+    }
+  };
 
   // --- Helpers ---
   const calculateAverageRating = () => {
@@ -138,19 +201,14 @@ export default function ProductDetailScreen() {
       : 'https://via.placeholder.com/800';
   };
 
-  // Logic thêm vào giỏ
   const handleAddToCart = () => {
     if (!product) return;
-    
-    // Tính giá sau giảm
     const { finalPrice } = calculatePrice(product);
-
-    // Thêm số lượng sản phẩm vào giỏ
     for (let i = 0; i < quantity; i++) {
       addToCart({
         id: product.id,
         name: product.name,
-        price: finalPrice, // Sử dụng giá đã giảm
+        price: finalPrice, 
         image: getImageUrl(product.image),
       });
     }
@@ -168,12 +226,10 @@ export default function ProductDetailScreen() {
 
   if (!product) return null;
 
-  // Dữ liệu hiển thị
   const categoryName = product.category && product.category.length > 0 ? product.category[0].value : 'Món ngon';
   const averageRating = calculateAverageRating();
   const description = product.description || `Món ${product.name} được chế biến từ nguyên liệu tươi ngon, hương vị đậm đà.`;
 
-  // Tính giá để hiển thị
   const { finalPrice, originalPrice, hasDiscount } = calculatePrice(product);
 
   return (
@@ -219,7 +275,6 @@ export default function ProductDetailScreen() {
                 resizeMode="cover"
               />
               
-              {/* Sale Badge */}
               {hasDiscount && (
                  <View style={styles.saleBadge}>
                     <Text style={styles.saleBadgeText}>
@@ -230,14 +285,13 @@ export default function ProductDetailScreen() {
                  </View>
               )}
 
-              {/* Category Badge */}
               <View style={styles.categoryBadge}>
                 <Text style={styles.categoryText}>{categoryName}</Text>
               </View>
 
-              {/* Favorite Button */}
+              {/* Favorite Button (Updated) */}
               <TouchableOpacity 
-                onPress={() => setIsFavorite(!isFavorite)}
+                onPress={handleToggleFavorite}
                 style={styles.favoriteButton}
               >
                 <Heart 
@@ -276,7 +330,6 @@ export default function ProductDetailScreen() {
 
         {/* Product Information */}
         <View style={styles.infoSection}>
-          {/* Title and Rating */}
           <View style={styles.titleRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.productName}>{product.name}</Text>
@@ -289,7 +342,6 @@ export default function ProductDetailScreen() {
               </View>
             </View>
             
-            {/* Price Info with Discount */}
             <View style={{alignItems: 'flex-end'}}>
                <Text style={[styles.priceText, hasDiscount && {color: COLORS.sale}]}>
                  {finalPrice.toLocaleString('vi-VN')}đ
@@ -302,7 +354,6 @@ export default function ProductDetailScreen() {
             </View>
           </View>
 
-          {/* Description */}
           <LinearGradient
             colors={['#f9fafb', '#eff6ff']}
             style={styles.descriptionBox}
@@ -314,7 +365,6 @@ export default function ProductDetailScreen() {
             <Text style={styles.descriptionText}>{description}</Text>
           </LinearGradient>
 
-          {/* Size Selection */}
           <View style={styles.sizeSection}>
             <View style={styles.sectionHeader}>
               <View style={styles.pill} />
@@ -355,7 +405,6 @@ export default function ProductDetailScreen() {
             </View>
           </View>
 
-          {/* Reviews Section */}
           <View style={styles.reviewsSection}>
             <View style={styles.reviewHeader}>
               <View style={{flexDirection: 'row', alignItems: 'center'}}>
@@ -402,7 +451,6 @@ export default function ProductDetailScreen() {
               
               <View style={styles.relatedGrid}>
                 {relatedProducts.map((relProduct) => {
-                  // --- LOGIC MỚI: Tính giá cho sản phẩm liên quan ---
                   const relPriceInfo = calculatePrice(relProduct);
                   const relImageUrl = getImageUrl(relProduct.image);
 
@@ -412,13 +460,11 @@ export default function ProductDetailScreen() {
                       style={styles.relatedCard}
                       onPress={() => router.push({ pathname: '/product-detail', params: { id: relProduct.id } })}
                     >
-                      {/* Bọc ảnh trong View để đặt Badge Sale */}
                       <View style={styles.relatedImageWrapper}>
                           <Image 
                             source={{ uri: relImageUrl }}
                             style={styles.relatedImage}
                           />
-                          {/* Badge Sale cho sản phẩm liên quan */}
                           {relPriceInfo.hasDiscount && (
                              <View style={styles.relatedSaleBadge}>
                                 <Text style={styles.relatedSaleBadgeText}>
@@ -433,7 +479,6 @@ export default function ProductDetailScreen() {
                       <View style={styles.relatedInfo}>
                         <Text style={styles.relatedName} numberOfLines={1}>{relProduct.name}</Text>
                         
-                        {/* Hiển thị giá sp liên quan */}
                         <View style={styles.relatedPriceRow}>
                             <Text style={[styles.relatedPrice, relPriceInfo.hasDiscount && {color: COLORS.sale}]}>
                                 {relPriceInfo.finalPrice.toLocaleString('vi-VN')}đ
@@ -453,14 +498,12 @@ export default function ProductDetailScreen() {
           )}
         </View>
         
-        {/* Spacer for bottom bar */}
         <View style={{ height: 120 }} />
       </ScrollView>
 
       {/* Sticky Bottom Action Bar */}
       <View style={styles.bottomBar}>
         <View style={styles.bottomBarContent}>
-          {/* Quantity Selector */}
           <View style={styles.qtyContainer}>
             <TouchableOpacity 
               onPress={() => setQuantity(Math.max(1, quantity - 1))}
@@ -477,7 +520,6 @@ export default function ProductDetailScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Total & Add Button */}
           <View style={styles.actionRight}>
             <View style={{ alignItems: 'flex-end', marginRight: 16 }}>
               <Text style={styles.totalLabel}>Tổng cộng</Text>
@@ -504,7 +546,6 @@ export default function ProductDetailScreen() {
         </View>
       </View>
 
-      {/* Cart Drawer */}
       <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} />
     </View>
   );
@@ -621,12 +662,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  // Sale Badge Styles
   saleBadge: {
     position: 'absolute',
     top: 16,
     left: 16, 
-    marginTop: 35, // Đẩy xuống dưới Category Badge
+    marginTop: 35,
     backgroundColor: COLORS.sale,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -889,7 +929,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9fafb',
     borderRadius: 12,
     padding: 8,
-    overflow: 'hidden', // Quan trọng để bo góc ảnh và badge
+    overflow: 'hidden',
   },
   relatedImageWrapper: {
     position: 'relative',
@@ -903,7 +943,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  // Style cho Badge của Related Products
   relatedSaleBadge: {
     position: 'absolute',
     top: 4,
@@ -950,11 +989,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: 'white',
+    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
     borderTopWidth: 1,
     borderTopColor: '#f3f4f6',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    paddingTop: 16,
-    paddingHorizontal: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.05,

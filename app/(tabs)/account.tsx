@@ -11,11 +11,12 @@ import {
   Settings,
   User
 } from 'lucide-react-native';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Image,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -24,6 +25,10 @@ import {
 } from 'react-native';
 // Import hook lấy dữ liệu người dùng
 import { useAuth } from '../../context/AuthContext';
+
+// Import API
+import apiOrder from '../../api/apiOrder';
+import apiVoucher from '../../api/apiVoucher';
 
 // Màu sắc chủ đạo (Blue Theme)
 const COLORS = {
@@ -41,6 +46,43 @@ const COLORS = {
 export default function AccountScreen() {
   const router = useRouter();
   const { user, logout } = useAuth();
+  
+  // State thống kê
+  const [stats, setStats] = useState({
+    orderCount: 0,
+    voucherCount: 0
+  });
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Hàm lấy dữ liệu thống kê
+  const fetchStats = async () => {
+    if (!user) return;
+    try {
+      // Gọi song song 2 API để lấy số lượng
+      const [orderRes, voucherRes] = await Promise.all([
+        apiOrder.getOrdersByUser(user.id),
+        apiVoucher.getVouchersByUser(user.id)
+      ]);
+
+      setStats({
+        orderCount: orderRes.count || orderRes.results.length || 0,
+        voucherCount: voucherRes.count || voucherRes.results.length || 0
+      });
+    } catch (error) {
+      console.error("Lỗi lấy thống kê tài khoản:", error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStats();
+  }, [user]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchStats();
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -80,7 +122,11 @@ export default function AccountScreen() {
   ];
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView 
+      style={styles.container} 
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+    >
       
       {/* Header Profile Section */}
       <LinearGradient
@@ -125,11 +171,13 @@ export default function AccountScreen() {
           </View>
           <View style={[styles.statItem, styles.statBorder]}>
             <Text style={styles.statLabel}>Voucher</Text>
-            <Text style={styles.statValue}>0</Text>
+            {/* Hiển thị số lượng voucher thật */}
+            <Text style={styles.statValue}>{stats.voucherCount}</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Đã mua</Text>
-            <Text style={styles.statValue}>0</Text>
+            <Text style={styles.statLabel}>Đơn hàng</Text>
+            {/* Hiển thị số lượng đơn hàng thật (Đã thay label từ "Đã mua" sang "Đơn hàng" cho rõ nghĩa) */}
+            <Text style={styles.statValue}>{stats.orderCount}</Text>
           </View>
         </View>
       </LinearGradient>
@@ -230,7 +278,7 @@ const styles = StyleSheet.create({
   },
   userEmail: {
     fontSize: 14,
-    color: '#dbeafe',
+    color: '#dbeafe', 
   },
   editButton: {
     padding: 8,
@@ -248,7 +296,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   statBorder: {
-    // Nếu muốn viền giữa, nhưng ở đây dùng card riêng lẻ đẹp hơn
+    // 
   },
   statLabel: {
     fontSize: 12,

@@ -80,6 +80,10 @@ export default function CheckoutScreen() {
   const [showAllDiscount, setShowAllDiscount] = useState(false);
   const [showAllShipping, setShowAllShipping] = useState(false);
 
+  // State quản lý Chọn Địa chỉ (MỚI)
+  const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
+  const [showAddressModal, setShowAddressModal] = useState(false);
+
   // --- Fetch Data ---
   useEffect(() => {
     const fetchCheckoutData = async () => {
@@ -109,10 +113,14 @@ export default function CheckoutScreen() {
   }, [user]);
 
   // --- Logic Địa chỉ ---
+  // Tìm địa chỉ đang chọn. Nếu chưa chọn thủ công thì lấy mặc định.
   const currentAddress = useMemo(() => {
     if (addresses.length === 0) return null;
+    if (selectedAddressId) {
+        return addresses.find(addr => addr.id === selectedAddressId) || null;
+    }
     return addresses.find(addr => addr.is_default) || addresses[0];
-  }, [addresses]);
+  }, [addresses, selectedAddressId]);
 
   // --- Logic Voucher ---
   const discountVouchers = useMemo(() => 
@@ -161,19 +169,14 @@ export default function CheckoutScreen() {
     setIsProcessing(true);
 
     try {
-        // 1. Thời gian hiện tại (ISO format)
         const now = new Date();
-        const createdAtISO = now.toISOString();
-
-        // 2. Tạo mã đơn hàng (VD: DH + timestamp)
         const orderNumber = `DH${now.getTime().toString().slice(-6)}`;
+        const createdAtISO = now.toISOString();
         
-        // 3. Chuẩn bị dữ liệu Voucher
         const voucherIds = [];
         if (selectedVoucher.discount) voucherIds.push(selectedVoucher.discount);
         if (selectedVoucher.shipping) voucherIds.push(selectedVoucher.shipping);
 
-        // 4. Tạo Order Payload
         const orderPayload = {
             order_number: orderNumber,
             user: [user.id], 
@@ -191,14 +194,12 @@ export default function CheckoutScreen() {
             order_status_history: []
         };
 
-        // 5. Gọi API tạo Order
         const createdOrder = await apiOrder.createOrder(orderPayload);
         const orderId = createdOrder.id;
 
-        // 6. Tạo Order Items (Sửa key 'order' thành 'order_ref')
         const orderItemPromises = items.map(item => {
             return apiOrderItem.create({
-                order_ref: [orderId], // <-- SỬA ĐÚNG KEY NÀY
+                order_ref: [orderId], 
                 product: [item.id], 
                 product_name: item.name,
                 quantity: item.quantity,
@@ -207,9 +208,8 @@ export default function CheckoutScreen() {
             });
         });
 
-        // 7. Tạo Order Status History (Sửa key 'order' thành 'order_id')
         const statusHistoryPromise = apiOrderStatus.create({
-            order_id: [orderId], // <-- SỬA ĐÚNG KEY NÀY
+            order_id: [orderId],
             status: 'pending',
             note: 'Đơn hàng mới',
             created_at: createdAtISO,
@@ -218,7 +218,6 @@ export default function CheckoutScreen() {
 
         await Promise.all([...orderItemPromises, statusHistoryPromise]);
 
-        // 8. Thành công
         clearCart();
         Alert.alert(
             "Đặt hàng thành công", 
@@ -260,7 +259,6 @@ export default function CheckoutScreen() {
       : selectedVoucher.shipping === voucher.id;
     
     const minOrder = Number(voucher.min_order_value);
-    
     const canUse = subtotal >= minOrder && !voucher.is_used; 
 
     return (
@@ -298,6 +296,39 @@ export default function CheckoutScreen() {
     );
   };
 
+  // --- Render Address Item (trong Modal) ---
+  const renderAddressItem = (address: AddressData) => {
+    const isSelected = currentAddress?.id === address.id;
+    return (
+      <TouchableOpacity 
+        key={address.id} 
+        style={[styles.addressItem, isSelected && styles.addressItemActive]}
+        onPress={() => {
+            setSelectedAddressId(address.id);
+            setShowAddressModal(false);
+        }}
+      >
+        <View style={styles.addressRow}>
+            <View style={[styles.addressIcon, isSelected && { backgroundColor: COLORS.blueBg }]}>
+                <MapPin size={20} color={isSelected ? COLORS.primary : COLORS.textLight} />
+            </View>
+            <View style={{flex: 1}}>
+                <Text style={[styles.addressLabelName, isSelected && {color: COLORS.primary}]}>
+                    {address.label}
+                </Text>
+                <Text style={styles.addressDetail}>{address.detail}</Text>
+                <Text style={styles.addressPhone}>{address.phone}</Text>
+            </View>
+            {isSelected && (
+                 <View style={styles.checkCircle}>
+                    <Check size={12} color="white" />
+                </View>
+            )}
+        </View>
+      </TouchableOpacity>
+    )
+  };
+
   if (isLoading) {
       return (
           <View style={[styles.container, {justifyContent: 'center', alignItems: 'center'}]}>
@@ -327,20 +358,21 @@ export default function CheckoutScreen() {
       </LinearGradient>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Delivery Address */}
+        {/* Delivery Address (Updated) */}
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <MapPin size={20} color={COLORS.green} style={{ marginRight: 8 }} />
-              <Text style={styles.sectionTitle}>Địa chỉ giao hàng</Text>
+              <Text style={styles.customerName}>
+                  {currentAddress ? currentAddress.label : 'Chọn địa chỉ'}
+              </Text>
             </View>
-            <TouchableOpacity onPress={() => router.push('/address')}>
+            <TouchableOpacity onPress={() => setShowAddressModal(true)}>
               <Text style={styles.changeText}>Thay đổi</Text>
             </TouchableOpacity>
           </View>
           {currentAddress ? (
             <View style={styles.addressContent}>
-              <Text style={styles.customerName}>{currentAddress.label} ({user?.name})</Text>
               <Text style={styles.customerPhone}>{currentAddress.phone}</Text>
               <Text style={styles.customerAddress}>{currentAddress.detail}</Text>
             </View>
@@ -583,6 +615,50 @@ export default function CheckoutScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Address Selection Modal (NEW) */}
+      <Modal
+        visible={showAddressModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowAddressModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                    <View style={styles.dragBar} />
+                    <View style={styles.modalTitleRow}>
+                        <Text style={styles.modalTitle}>Chọn Địa Chỉ</Text>
+                        <TouchableOpacity onPress={() => setShowAddressModal(false)}>
+                            <Text style={styles.closeText}>Đóng</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                <ScrollView style={styles.modalBody}>
+                    {addresses.length > 0 ? (
+                        addresses.map((addr) => renderAddressItem(addr))
+                    ) : (
+                        <View style={{alignItems: 'center', padding: 20}}>
+                            <Text style={{color: COLORS.textLight, marginBottom: 16}}>Bạn chưa có địa chỉ nào.</Text>
+                        </View>
+                    )}
+                </ScrollView>
+
+                <View style={styles.modalFooter}>
+                    <TouchableOpacity 
+                        style={[styles.modalButton, {backgroundColor: COLORS.primary}]}
+                        onPress={() => {
+                            setShowAddressModal(false);
+                            router.push('/address'); // Chuyển sang trang quản lý để thêm mới
+                        }}
+                    >
+                        <Text style={[styles.modalButtonText, {color: 'white'}]}>Thêm địa chỉ mới</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -633,7 +709,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 4,
   },
   sectionTitleRow: {
     flexDirection: 'row',
@@ -1030,5 +1106,50 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontWeight: '600',
     fontSize: 16,
-  }
+  },
+  // Address Modal Item Styles
+  addressItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    marginBottom: 12,
+    backgroundColor: 'white',
+  },
+  addressItemActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#eff6ff',
+  },
+  addressIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
+    marginRight: 12,
+  },
+  addressLabelName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  addressDetail: {
+    fontSize: 13,
+    color: COLORS.textLight,
+    marginBottom: 2,
+  },
+  addressPhone: {
+    fontSize: 12,
+    color: '#9ca3af',
+  },
+  // Add missing styles for the newly created row
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
 });

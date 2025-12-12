@@ -69,7 +69,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           role: rawUser.role || null,
           image: rawUser.image,
         };
-
+      
         setUser(loggedInUser);
         await AsyncStorage.setItem('user_session', JSON.stringify(loggedInUser));
         Alert.alert('Thành công', `Chào mừng ${loggedInUser.name || 'bạn'} quay lại!`);

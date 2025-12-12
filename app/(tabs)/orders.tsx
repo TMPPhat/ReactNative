@@ -48,7 +48,7 @@ type FilterType = 'all' | 'pending' | 'shipping' | 'completed' | 'cancelled';
 export default function OrdersScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  
+
   const [orders, setOrders] = useState<OrderDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -61,18 +61,23 @@ export default function OrdersScreen() {
       // 1. Lấy danh sách đơn hàng
       const orderRes = await apiOrder.getOrdersByUser(user.id);
       const rawOrders: OrderData[] = orderRes.results || [];
+      const ordersWithItems: OrderDisplay[] = [];
 
-      // 2. Lấy chi tiết items cho từng đơn hàng (Chạy song song)
-      // Lưu ý: Nếu danh sách quá dài, nên phân trang hoặc lazy load items
-      const ordersWithItems = await Promise.all(
-        rawOrders.map(async (order) => {
+      // 2. Lấy chi tiết items TUẦN TỰ (Sequential) thay vì Song song
+      // Để tránh lỗi 429 khi có quá nhiều đơn hàng
+      for (const order of rawOrders) {
+        try {
           const itemsRes = await apiOrderItem.getItemsByOrderId(order.id);
-          return {
+          ordersWithItems.push({
             ...order,
             items: itemsRes.results || []
-          };
-        })
-      );
+          });
+        } catch (err) {
+          // Nếu lỗi lấy item con, vẫn hiện đơn hàng nhưng ko có item
+          console.warn(`Lỗi lấy items cho đơn ${order.id}`, err);
+          ordersWithItems.push({ ...order, items: [] });
+        }
+      }
 
       setOrders(ordersWithItems);
     } catch (error) {
@@ -82,6 +87,7 @@ export default function OrdersScreen() {
       setRefreshing(false);
     }
   };
+
 
   useEffect(() => {
     fetchOrders();
@@ -95,31 +101,31 @@ export default function OrdersScreen() {
   // --- Filter Logic ---
   const filteredOrders = orders.filter((order) => {
     if (selectedType === 'all') return true;
-    
+
     // Map các trạng thái con vào tab
     const status = order.status?.value;
     if (selectedType === 'pending') return status === 'pending' || status === 'preparing';
     if (selectedType === 'shipping') return status === 'shipping';
     if (selectedType === 'completed') return status === 'completed';
     if (selectedType === 'cancelled') return status === 'cancelled';
-    
+
     return true;
   });
 
   // --- Helper: Config hiển thị theo trạng thái ---
   const getStatusConfig = (statusValue: string) => {
     switch (statusValue) {
-      case 'completed': 
+      case 'completed':
         return { bg: COLORS.successBg, text: COLORS.successText, label: 'Hoàn thành', icon: CheckCircle };
-      case 'shipping': 
+      case 'shipping':
         return { bg: COLORS.infoBg, text: COLORS.infoText, label: 'Đang giao', icon: Truck };
-      case 'preparing': 
+      case 'preparing':
         return { bg: COLORS.warningBg, text: COLORS.warningText, label: 'Đang chuẩn bị', icon: Coffee };
-      case 'pending': 
+      case 'pending':
         return { bg: COLORS.warningBg, text: COLORS.warningText, label: 'Chờ xác nhận', icon: Clock };
-      case 'cancelled': 
+      case 'cancelled':
         return { bg: COLORS.dangerBg, text: COLORS.dangerText, label: 'Đã hủy', icon: XCircle };
-      default: 
+      default:
         return { bg: COLORS.defaultBg, text: COLORS.defaultText, label: 'Chưa rõ', icon: AlertCircle };
     }
   };
@@ -132,7 +138,7 @@ export default function OrdersScreen() {
   const formatDate = (dateString: string) => {
     if (!dateString) return '';
     const date = new Date(dateString);
-    return date.toLocaleDateString('vi-VN') + ' ' + date.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'});
+    return date.toLocaleDateString('vi-VN') + ' ' + date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
@@ -164,87 +170,87 @@ export default function OrdersScreen() {
 
       {/* Order List */}
       {isLoading ? (
-          <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={COLORS.primary} />
-          </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+        </View>
       ) : (
-        <ScrollView 
-            contentContainerStyle={styles.orderList} 
-            showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        <ScrollView
+          contentContainerStyle={styles.orderList}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
-            {filteredOrders.length === 0 ? (
+          {filteredOrders.length === 0 ? (
             <View style={styles.emptyState}>
-                <Package size={64} color="#d1d5db" style={{marginBottom: 16}} />
-                <Text style={styles.emptyText}>Chưa có đơn hàng nào</Text>
+              <Package size={64} color="#d1d5db" style={{ marginBottom: 16 }} />
+              <Text style={styles.emptyText}>Chưa có đơn hàng nào</Text>
             </View>
-            ) : (
+          ) : (
             filteredOrders.map((order) => {
-                const statusConfig = getStatusConfig(order.status?.value || 'unknown');
-                const StatusIcon = statusConfig.icon;
-                
-                return (
+              const statusConfig = getStatusConfig(order.status?.value || 'unknown');
+              const StatusIcon = statusConfig.icon;
+
+              return (
                 <View key={order.id} style={styles.orderCard}>
-                    {/* Header Card: Mã đơn + Ngày + Trạng thái */}
-                    <View style={styles.cardHeader}>
+                  {/* Header Card: Mã đơn + Ngày + Trạng thái */}
+                  <View style={styles.cardHeader}>
                     <View>
-                        <Text style={styles.orderNumber}>#{order.order_number}</Text>
-                        <Text style={styles.orderDate}>{formatDate(order.created_at)}</Text>
+                      <Text style={styles.orderNumber}>#{order.order_number}</Text>
+                      <Text style={styles.orderDate}>{formatDate(order.created_at)}</Text>
                     </View>
                     <View style={[styles.statusBadge, { backgroundColor: statusConfig.bg }]}>
-                        <StatusIcon size={14} color={statusConfig.text} style={{marginRight: 4}} />
-                        <Text style={[styles.statusText, { color: statusConfig.text }]}>{statusConfig.label}</Text>
+                      <StatusIcon size={14} color={statusConfig.text} style={{ marginRight: 4 }} />
+                      <Text style={[styles.statusText, { color: statusConfig.text }]}>{statusConfig.label}</Text>
                     </View>
-                    </View>
+                  </View>
 
-                    {/* Items List (Show max 3 items) */}
-                    <View style={styles.itemsContainer}>
+                  {/* Items List (Show max 3 items) */}
+                  <View style={styles.itemsContainer}>
                     {order.items.length > 0 ? (
-                        order.items.map((item, index) => (
+                      order.items.map((item, index) => (
                         <View key={index} style={styles.itemRow}>
-                            <View style={styles.itemInfo}>
+                          <View style={styles.itemInfo}>
                             <Text style={styles.itemName} numberOfLines={1}>{item.product_name}</Text>
                             <Text style={styles.itemQuantity}>x{Number(item.quantity)}</Text>
-                            </View>
-                            <Text style={styles.itemPrice}>{Number(item.price).toLocaleString('vi-VN')}đ</Text>
+                          </View>
+                          <Text style={styles.itemPrice}>{Number(item.price).toLocaleString('vi-VN')}đ</Text>
                         </View>
-                        ))
+                      ))
                     ) : (
-                        <Text style={{color: '#9ca3af', fontSize: 13, fontStyle: 'italic'}}>Đang cập nhật chi tiết món...</Text>
+                      <Text style={{ color: '#9ca3af', fontSize: 13, fontStyle: 'italic' }}>Đang cập nhật chi tiết món...</Text>
                     )}
-                    </View>
+                  </View>
 
-                    {/* Footer Card: Tổng tiền + Nút bấm */}
-                    <View style={styles.totalContainer}>
+                  {/* Footer Card: Tổng tiền + Nút bấm */}
+                  <View style={styles.totalContainer}>
                     <Text style={styles.totalLabel}>Tổng cộng</Text>
                     <Text style={styles.totalPrice}>{Number(order.total_price).toLocaleString('vi-VN')}đ</Text>
-                    </View>
+                  </View>
 
-                    <View style={styles.actionButtons}>
-                        {/* Logic hiển thị nút tùy trạng thái */}
-                        {order.status?.value === 'completed' || order.status?.value === 'cancelled' ? (
-                            <TouchableOpacity style={[styles.button, styles.primaryButton]}>
-                                <Text style={styles.primaryButtonText}>Đặt lại</Text>
-                            </TouchableOpacity>
-                        ) : null}
+                  <View style={styles.actionButtons}>
+                    {/* Logic hiển thị nút tùy trạng thái */}
+                    {order.status?.value === 'completed' || order.status?.value === 'cancelled' ? (
+                      <TouchableOpacity style={[styles.button, styles.primaryButton]}>
+                        <Text style={styles.primaryButtonText}>Đặt lại</Text>
+                      </TouchableOpacity>
+                    ) : null}
 
-                        <TouchableOpacity 
-                            style={[
-                                styles.button, 
-                                styles.secondaryButton, 
-                                // Nếu chỉ có 1 nút thì nó full width
-                                (order.status?.value !== 'completed' && order.status?.value !== 'cancelled') && { width: '100%' }
-                            ]}
-                            onPress={() => handleDetailPress(order.id)}
-                        >
-                            <Text style={styles.secondaryButtonText}>Chi tiết</Text>
-                        </TouchableOpacity>
-                    </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.button,
+                        styles.secondaryButton,
+                        // Nếu chỉ có 1 nút thì nó full width
+                        (order.status?.value !== 'completed' && order.status?.value !== 'cancelled') && { width: '100%' }
+                      ]}
+                      onPress={() => handleDetailPress(order.id)}
+                    >
+                      <Text style={styles.secondaryButtonText}>Chi tiết</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                );
+              );
             })
-            )}
-            <View style={{ height: 100 }} />
+          )}
+          <View style={{ height: 100 }} />
         </ScrollView>
       )}
     </View>
@@ -254,13 +260,13 @@ export default function OrdersScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { 
-      paddingTop: Platform.OS === 'ios' ? 60 : 40, 
-      paddingBottom: 16, 
-      backgroundColor: 'white', 
-      borderBottomWidth: 1, 
-      borderBottomColor: '#e5e7eb', 
-      zIndex: 10 
+  header: {
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 16,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    zIndex: 10
   },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.text, marginBottom: 16, paddingHorizontal: 20 },
   filterList: { paddingHorizontal: 20, paddingBottom: 4 },

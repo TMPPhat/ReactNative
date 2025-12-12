@@ -20,6 +20,21 @@ const apiVoucher = {
   getAllVouchers: async () => {
     const response = await axiosClient.get(getVoucherUrl());
     return response.data;
+  },
+
+  getVouchersByUser: async (userId: number) => {
+    // Filter voucher thuộc về user HOẶC voucher chung (nếu logic của bạn cho phép)
+    // Ở đây ta filter voucher có link tới user
+    const filters = JSON.stringify({
+      filter_type: "AND",
+      filters: [
+        { type: "link_row_has", field: "user", value: userId.toString() },
+        { type: "boolean", field: "is_used", value: "false" } // Chỉ lấy voucher chưa dùng
+      ]
+    });
+    
+    const response = await axiosClient.get(`${getVoucherUrl()}&filters=${filters}`);
+    return response.data;
   }
 };
 
