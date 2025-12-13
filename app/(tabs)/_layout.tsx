@@ -112,7 +112,7 @@ export default function TabLayout() {
       <Tabs.Screen name="orders" options={{ title: 'Đơn hàng' }} />
       <Tabs.Screen name="account" options={{ title: 'Tài khoản' }} />
       
-      {/* ĐÃ XÓA TAB EXPLORE */}
+ 
     </Tabs>
   );
 }

@@ -1,6 +1,7 @@
+import * as Crypto from 'expo-crypto'; // Import thư viện mã hóa
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, Mail, MessageSquare } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react'; // Import useEffect
 import {
   ActivityIndicator,
   Alert,
@@ -15,15 +16,17 @@ import {
   View
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { useAuth } from '../context/AuthContext'; // Import hook useAuth
+
+import apiUser from '../api/apiUser';
+import { useAuth } from '../context/AuthContext';
 
 // --- CẤU HÌNH EMAILJS ---
-// Bạn hãy thay thế bằng thông tin thật từ tài khoản EmailJS của bạn
 const EMAILJS_CONFIG = {
-  SERVICE_ID: 'service_4rqxodn',      // VD: service_gmail
-  TEMPLATE_ID: 'template_v91vs9q',    // VD: template_otp_code
-  PUBLIC_KEY: 'LFTVau-pMSELmf49x',      // VD: aBcDeFgHiJkLmNoPq
+  SERVICE_ID: 'service_4rqxodn',
+  TEMPLATE_ID: 'template_v91vs9q',
+  PUBLIC_KEY: 'LFTVau-pMSELmf49x',
 };
+
 // Component hiển thị Logo Google
 const GoogleIcon = () => (
   <Svg width={20} height={20} viewBox="0 0 24 24">
@@ -81,11 +84,33 @@ export default function LoginScreen() {
   const [forgotStep, setForgotStep] = useState(1); // 1: Email, 2: OTP, 3: New Pass
   const [resetEmail, setResetEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState(''); // Lưu OTP gốc để đối chiếu
+  
+  const [generatedOtp, setGeneratedOtp] = useState(''); 
+  const [otpExpiry, setOtpExpiry] = useState<number | null>(null); // Lưu thời gian hết hạn OTP (Timestamp)
+  const [timeLeft, setTimeLeft] = useState(0); // State đếm ngược (giây)
+
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [isResetLoading, setIsResetLoading] = useState(false);
+
+  // --- Logic Đếm ngược OTP ---
+  useEffect(() => {
+    let timer: any; // Sửa lỗi Type: Dùng any để tương thích với cả web và native
+    if (forgotStep === 2 && timeLeft > 0) {
+      timer = setInterval(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [forgotStep, timeLeft]);
+
+  // Format thời gian hiển thị (MM:SS)
+  const formatTimeLeft = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
 
   // --- Handlers cho Login ---
   const handleLogin = async () => {
@@ -107,7 +132,7 @@ export default function LoginScreen() {
     return Math.floor(100000 + Math.random() * 900000).toString();
   };
 
-  // Bước 1: Gửi Email qua EmailJS
+  // Bước 1: Kiểm tra Email & Gửi OTP qua EmailJS
   const handleSubmitEmail = async () => {
     if (!resetEmail || !resetEmail.includes('@')) {
       Alert.alert('Lỗi', 'Vui lòng nhập địa chỉ email hợp lệ.');
@@ -117,21 +142,34 @@ export default function LoginScreen() {
     setIsResetLoading(true);
 
     try {
-      // 1. Tạo OTP
-      const otp = generateOTP();
-      setGeneratedOtp(otp); // Lưu lại để so sánh ở bước 2
-      console.log('Generated OTP:', otp); // Debug: Xem OTP trong console
+      // 1. Kiểm tra Email có tồn tại trên hệ thống không
+      const checkRes = await apiUser.checkEmailExists(resetEmail);
+      
+      if (!checkRes.results || checkRes.results.length === 0) {
+        Alert.alert('Lỗi', 'Email này chưa được đăng ký trong hệ thống.');
+        setIsResetLoading(false);
+        return;
+      }
 
-      // 2. Gửi request đến EmailJS API
+      // 2. Tạo OTP & Thời gian hết hạn (2 phút = 120 giây)
+      const otp = generateOTP();
+      const expiry = Date.now() + 2 * 60 * 1000;
+      
+      setGeneratedOtp(otp);
+      setOtpExpiry(expiry);
+      setTimeLeft(120); // Đặt thời gian đếm ngược 120s
+      
+      console.log('Generated OTP:', otp); 
+
+      // 3. Gửi request đến EmailJS API
       const data = {
         service_id: EMAILJS_CONFIG.SERVICE_ID,
         template_id: EMAILJS_CONFIG.TEMPLATE_ID,
         user_id: EMAILJS_CONFIG.PUBLIC_KEY,
         template_params: {
           to_email: resetEmail,
-          // Gửi OTP vào cả 2 biến để đảm bảo hiển thị dù bạn dùng template nào
           otp_code: otp, 
-          message: otp, // Dành cho template mặc định dùng biến {{message}}
+          message: otp,
         }
       };
 
@@ -139,21 +177,21 @@ export default function LoginScreen() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'origin': 'http://localhost', // Giữ header này để tránh lỗi chặn API
+          'origin': 'http://localhost',
         },
         body: JSON.stringify(data),
       });
 
       if (response.ok) {
-        Alert.alert('Thành công', `Mã OTP đã được gửi đến ${resetEmail}`);
-        setForgotStep(2); // Chuyển sang bước nhập OTP
+        Alert.alert('Thành công', `Mã OTP đã được gửi đến ${resetEmail}.`);
+        setForgotStep(2); 
       } else {
         const errorText = await response.text();
         console.error('EmailJS Error:', errorText);
-        Alert.alert('Lỗi', `EmailJS từ chối: ${errorText}. Hãy kiểm tra lại Config.`);
+        Alert.alert('Lỗi', 'Không thể gửi email. Vui lòng thử lại sau.');
       }
     } catch (error) {
-      console.error('Lỗi gửi email:', error);
+      console.error('Lỗi quy trình quên mật khẩu:', error);
       Alert.alert('Lỗi', 'Đã xảy ra lỗi kết nối. Vui lòng kiểm tra mạng.');
     } finally {
       setIsResetLoading(false);
@@ -166,23 +204,31 @@ export default function LoginScreen() {
       Alert.alert('Lỗi', 'Mã OTP phải có 6 chữ số.');
       return;
     }
+
+    // Kiểm tra hết hạn theo timestamp hoặc theo bộ đếm
+    if ((otpExpiry && Date.now() > otpExpiry) || timeLeft <= 0) {
+        Alert.alert('Hết hạn', 'Mã OTP đã hết hiệu lực. Vui lòng gửi lại mã mới.', [
+            { text: 'Gửi lại', onPress: () => { setForgotStep(1); setTimeLeft(0); } },
+            { text: 'Đóng' }
+        ]);
+        return;
+    }
     
     setIsResetLoading(true);
     
-    // Giả lập verify OTP (So sánh với state local)
     setTimeout(() => {
       setIsResetLoading(false);
       if (otpCode === generatedOtp) {
         Alert.alert('Thành công', 'Xác thực OTP thành công!');
-        setForgotStep(3); // Chuyển sang bước nhập mật khẩu mới
+        setForgotStep(3); 
       } else {
-        Alert.alert('Lỗi', 'Mã OTP không chính xác. Vui lòng kiểm tra lại email.');
+        Alert.alert('Lỗi', 'Mã OTP không chính xác.');
       }
     }, 500);
   };
 
-  // Bước 3: Đổi mật khẩu (Cần gọi API Backend thật để update password)
-  const handleSubmitNewPassword = () => {
+  // Bước 3: Đổi mật khẩu (Có mã hóa SHA-256)
+  const handleSubmitNewPassword = async () => {
     if (newPassword.length < 6) {
       Alert.alert('Lỗi', 'Mật khẩu phải có ít nhất 6 ký tự.');
       return;
@@ -191,26 +237,48 @@ export default function LoginScreen() {
       Alert.alert('Lỗi', 'Mật khẩu xác nhận không khớp.');
       return;
     }
+    
     setIsResetLoading(true);
-    
-    // TODO: Tại đây bạn cần gọi API Baserow hoặc Backend của bạn để cập nhật mật khẩu mới cho user có email này
-    // Ví dụ: await apiUser.updatePassword(resetEmail, newPassword);
-    
-    setTimeout(() => {
-      setIsResetLoading(false);
-      Alert.alert('Thành công', 'Mật khẩu đã được đặt lại. Vui lòng đăng nhập bằng mật khẩu mới.', [
-        { text: 'OK', onPress: closeForgotModal }
-      ]);
-    }, 1500);
+
+    try {
+        const checkRes = await apiUser.checkEmailExists(resetEmail);
+        if (checkRes.results && checkRes.results.length > 0) {
+            const userId = checkRes.results[0].id;
+            
+            // --- MÃ HÓA MẬT KHẨU (SHA-256) ---
+            const hashedPassword = await Crypto.digestStringAsync(
+                Crypto.CryptoDigestAlgorithm.SHA256,
+                newPassword
+            );
+            console.log('Original Password:', newPassword);
+            console.log('Hashed Password:', hashedPassword);
+
+            // Gọi API cập nhật password ĐÃ MÃ HÓA
+            await apiUser.updateUser(userId, { password: hashedPassword });
+            
+            Alert.alert('Thành công', 'Mật khẩu đã được đặt lại. Vui lòng đăng nhập.', [
+                { text: 'OK', onPress: closeForgotModal }
+            ]);
+        } else {
+            Alert.alert('Lỗi', 'Không tìm thấy tài khoản để cập nhật.');
+        }
+
+    } catch (error) {
+        console.error('Lỗi đổi mật khẩu:', error);
+        Alert.alert('Lỗi', 'Không thể cập nhật mật khẩu. Vui lòng thử lại.');
+    } finally {
+        setIsResetLoading(false);
+    }
   };
 
   const closeForgotModal = () => {
     setForgotModalVisible(false);
-    // Reset lại state khi đóng
     setForgotStep(1);
     setResetEmail('');
     setOtpCode('');
     setGeneratedOtp('');
+    setOtpExpiry(null);
+    setTimeLeft(0); // Reset timer
     setNewPassword('');
     setConfirmNewPassword('');
   };
@@ -394,6 +462,14 @@ export default function LoginScreen() {
                   <Text style={styles.modalInstruction}>
                     Mã xác thực 6 số đã được gửi đến {resetEmail}.
                   </Text>
+                  
+                  {/* Hiển thị thời gian đếm ngược */}
+                  <View style={{alignItems: 'center', marginBottom: 12}}>
+                    <Text style={{color: timeLeft > 0 ? COLORS.primary : 'red', fontWeight: '600'}}>
+                       Hiệu lực còn lại: {formatTimeLeft(timeLeft)}
+                    </Text>
+                  </View>
+
                   <View style={styles.inputWrapper}>
                     <MessageSquare color={COLORS.mutedForeground} size={20} style={styles.inputIcon} />
                     <TextInput
@@ -409,10 +485,19 @@ export default function LoginScreen() {
                   <TouchableOpacity 
                     style={[styles.modalButton, isResetLoading && { opacity: 0.7 }]}
                     onPress={handleSubmitOtp}
-                    disabled={isResetLoading}
+                    disabled={isResetLoading || timeLeft <= 0}
                   >
                     {isResetLoading ? <ActivityIndicator color="white" /> : <Text style={styles.modalButtonText}>Xác nhận OTP</Text>}
                   </TouchableOpacity>
+                  
+                  {timeLeft <= 0 && (
+                      <TouchableOpacity 
+                        style={{marginTop: 12, alignItems: 'center'}}
+                        onPress={() => { setForgotStep(1); setTimeLeft(0); }}
+                      >
+                         <Text style={{color: COLORS.primary}}>Gửi lại mã mới</Text>
+                      </TouchableOpacity>
+                  )}
                 </>
               )}
 

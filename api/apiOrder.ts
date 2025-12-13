@@ -56,6 +56,15 @@ const apiOrder = {
   getOrderDetail: async (orderId: number) => {
     const response = await axiosClient.get(`${CONFIG.ORDER_TABLE_ID}/${orderId}/?user_field_names=true`);
     return response.data;
+  },
+
+    // Cập nhật trạng thái đơn hàng (MỚI)
+  updateOrderStatus: async (orderId: number, statusValue: string) => {
+    // Với Single Select của Baserow, ta gửi value dạng string
+    const response = await axiosClient.patch(`${CONFIG.ORDER_TABLE_ID}/${orderId}/?user_field_names=true`, {
+      status: statusValue
+    });
+    return response.data;
   }
 };
 

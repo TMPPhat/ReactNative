@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+// import { useRouter } from 'expo-router'; // Không cần dùng trực tiếp nữa
 import { ArrowRight, ChevronRight, Gift, ShoppingBag, Zap } from 'lucide-react-native';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../context/AuthContext'; // 1. Import AuthContext
 
 const slides = [
   {
@@ -46,7 +47,8 @@ const slides = [
 const { width } = Dimensions.get('window');
 
 export default function IntroScreen() {
-  const router = useRouter();
+  // const router = useRouter(); 
+  const { finishIntro } = useAuth(); // 2. Lấy hàm finishIntro
   const [currentSlide, setCurrentSlide] = useState(0);
   
   const [touchStart, setTouchStart] = useState(0);
@@ -73,8 +75,9 @@ export default function IntroScreen() {
     ).start();
   }, []);
 
+  // 3. Cập nhật hàm hoàn thành
   const handleComplete = () => {
-    router.replace('/login');
+    finishIntro(); // Gọi hàm này để lưu trạng thái và chuyển trang
   };
 
   const handleNext = () => {
@@ -155,12 +158,12 @@ export default function IntroScreen() {
 
       <View style={styles.bottomCard}>
         <View style={styles.bottomContent}>
-          {/* Dots Indicator - Đã sửa thành TouchableOpacity */}
+          {/* Dots Indicator */}
           <View style={styles.dotsContainer}>
             {slides.map((_, index) => (
               <TouchableOpacity
                 key={index}
-                onPress={() => setCurrentSlide(index)} // Bấm vào để chuyển slide
+                onPress={() => setCurrentSlide(index)}
                 style={[
                   styles.dot,
                   index === currentSlide ? styles.activeDot : styles.inactiveDot,
@@ -237,8 +240,8 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
     borderRadius: 100, 
-    backgroundColor: 'transparent', // Hoặc 'white' nếu cần thiết để hiện bóng tốt hơn trên Android cũ
-    width: 200, // Đảm bảo kích thước khớp với iconCircle
+    backgroundColor: 'transparent',
+    width: 200, 
     height: 200,
   },
   iconCircle: {
@@ -248,7 +251,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
-    overflow: 'hidden', // Cắt các decor circle bị thừa
+    overflow: 'hidden',
   },
   decorCircle: {
     position: 'absolute',
@@ -312,7 +315,6 @@ const styles = StyleSheet.create({
   dot: {
     height: 8,
     borderRadius: 4,
-    // Thêm vùng bấm để dễ bấm hơn
     padding: 4, 
   },
   activeDot: {
@@ -328,9 +330,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 5,
-    // SỬA LỖI 2: Thêm borderRadius cho container đổ bóng của nút
     borderRadius: 16,
-    backgroundColor: 'white', // Cần nền để đổ bóng chuẩn trên Android
+    backgroundColor: 'white', 
   },
   actionButton: {
     flexDirection: 'row',

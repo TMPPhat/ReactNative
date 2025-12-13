@@ -1,25 +1,25 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
-    ArrowLeft,
-    CheckCircle,
-    Clock,
-    MapPin,
-    MessageSquare,
-    Package,
-    Truck,
-    XCircle
+  ArrowLeft,
+  CheckCircle,
+  Clock,
+  MapPin,
+  MessageSquare,
+  Package,
+  Truck,
+  XCircle
 } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Image,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Image,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 
 // Import API
@@ -179,10 +179,17 @@ export default function OrderDetailScreen() {
                 </View>
             )
         })}
-        {/* Nếu đơn hàng bị hủy, hiện thêm dòng hủy */}
+        {/* Nếu đơn hàng bị hủy, hiện thêm dòng hủy và hiển thị thời gian hủy nếu có */}
         {order.status.value === 'cancelled' && order.timeline[order.timeline.length - 1]?.status.value !== 'cancelled' && (
             <View style={styles.timelineItem}>
-                 <View style={styles.timelineLeft}><Text style={styles.timelineTime}>--:--</Text></View>
+                 <View style={styles.timelineLeft}>
+                    {/* Hiển thị thời gian hủy nếu có trong dữ liệu order, nếu không thì placeholder */}
+                    <Text style={styles.timelineTime}>
+                        {/* Lưu ý: Nếu muốn chính xác thời gian hủy, cần thêm trường cancelled_at vào API Order hoặc lấy từ status history cuối cùng nếu là cancelled */}
+                         {/* Ở đây tạm thời dùng placeholder hoặc lấy thời gian status cuối cùng + 1p */}
+                        {formatTime(new Date().toISOString())} 
+                    </Text>
+                 </View>
                  <View style={styles.timelineCenter}>
                      <View style={[styles.dot, { backgroundColor: COLORS.red }]} />
                  </View>

@@ -15,7 +15,7 @@ export const CONFIG = {
   BASEROW_BASE_URL: 'https://api.baserow.io/api/database/rows/table/',
 
 
-  GEMINI_API_KEY: 'AIzaSyDHSfmdGXWIAvcFEah9ax8DSb5RU1VeoCk', 
+  GEMINI_API_KEY: 'AIzaSyAP2rRrNJrNFKCWQ-srmX36ZQV9p-hEXxE', 
   
   GEMINI_URL: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent',
 };
